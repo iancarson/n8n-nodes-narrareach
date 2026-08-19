@@ -1,0 +1,14 @@
+{
+  "node": "n8n-nodes-narrareach",
+  "nodeVersion": "1.0",
+  "codexVersion": "1.0",
+  "categories": ["Marketing", "Productivity"],
+  "resources": {
+    "credentialDocumentation": [
+      { "url": "https://www.narrareach.com/api-docs" }
+    ],
+    "primaryDocumentation": [
+      { "url": "https://github.com/iancarson/n8n-nodes-narrareach" }
+    ]
+  }
+}

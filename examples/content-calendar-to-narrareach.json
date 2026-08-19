@@ -1,0 +1,34 @@
+{
+  "name": "Content Calendar to Narrareach",
+  "nodes": [
+    {
+      "parameters": { "pollTimes": { "item": [{ "mode": "everyMinute" }] }, "event": "rowAdded" },
+      "id": "calendar",
+      "name": "New Content Calendar Row",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "scheduleNote",
+        "content": "={{$json.content}}",
+        "notePlatforms": "={{$json.platforms.split(',').map(value => value.trim().toUpperCase())}}",
+        "imageUrls": "={{$json.imageUrls}}",
+        "threadsTopicTag": "={{$json.threadsTopicTag}}",
+        "scheduledFor": "={{$json.scheduledFor}}",
+        "timezone": "={{$json.timezone || 'UTC'}}",
+        "idempotencyKey": "={{$json.id}}"
+      },
+      "id": "narrareach",
+      "name": "Schedule Note",
+      "type": "n8n-nodes-narrareach.narrareach",
+      "typeVersion": 1,
+      "position": [280, 0]
+    }
+  ],
+  "connections": {
+    "New Content Calendar Row": { "main": [[{ "node": "Schedule Note", "type": "main", "index": 0 }]] }
+  },
+  "settings": {}
+}

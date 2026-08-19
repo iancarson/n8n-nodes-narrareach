@@ -1,0 +1,43 @@
+{
+  "name": "RSS to Narrareach",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "hours", "hoursInterval": 1 }] } },
+      "id": "schedule",
+      "name": "Every Hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": { "url": "https://example.com/feed.xml" },
+      "id": "rss",
+      "name": "Read RSS Feed",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "operation": "scheduleArticle",
+        "title": "={{$json.title}}",
+        "contentHtml": "={{$json.content || $json.contentSnippet}}",
+        "sourceUrl": "={{$json.link}}",
+        "articlePlatforms": ["SUBSTACK"],
+        "scheduledFor": "={{$now.plus({hours: 24}).toISO()}}",
+        "timezone": "UTC",
+        "idempotencyKey": "={{$json.guid || $json.link}}"
+      },
+      "id": "narrareach",
+      "name": "Schedule Article",
+      "type": "n8n-nodes-narrareach.narrareach",
+      "typeVersion": 1,
+      "position": [500, 0]
+    }
+  ],
+  "connections": {
+    "Every Hour": { "main": [[{ "node": "Read RSS Feed", "type": "main", "index": 0 }]] },
+    "Read RSS Feed": { "main": [[{ "node": "Schedule Article", "type": "main", "index": 0 }]] }
+  },
+  "settings": {}
+}

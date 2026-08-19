@@ -1,0 +1,34 @@
+{
+  "name": "Google Docs to Narrareach",
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "google-docs-narrareach", "responseMode": "onReceived" },
+      "id": "docs",
+      "name": "Receive Google Docs Export",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "scheduleArticle",
+        "title": "={{$json.body.title}}",
+        "contentHtml": "={{$json.body.contentHtml}}",
+        "articlePlatforms": ["SUBSTACK", "MEDIUM"],
+        "coverImageUrl": "={{$json.body.coverImageUrl}}",
+        "scheduledFor": "={{$json.body.scheduledFor}}",
+        "timezone": "={{$json.body.timezone || 'UTC'}}",
+        "idempotencyKey": "={{$json.body.documentId}}"
+      },
+      "id": "narrareach",
+      "name": "Schedule Article",
+      "type": "n8n-nodes-narrareach.narrareach",
+      "typeVersion": 1,
+      "position": [280, 0]
+    }
+  ],
+  "connections": {
+    "Receive Google Docs Export": { "main": [[{ "node": "Schedule Article", "type": "main", "index": 0 }]] }
+  },
+  "settings": {}
+}

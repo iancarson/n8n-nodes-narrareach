@@ -1,0 +1,33 @@
+{
+  "name": "Logseq to Narrareach",
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "logseq-narrareach", "responseMode": "onReceived" },
+      "id": "logseq",
+      "name": "Receive Logseq Page",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "scheduleArticle",
+        "title": "={{$json.body.title}}",
+        "contentHtml": "={{$json.body.contentHtml}}",
+        "articlePlatforms": ["SUBSTACK"],
+        "scheduledFor": "={{$json.body.scheduledFor}}",
+        "timezone": "={{$json.body.timezone || 'UTC'}}",
+        "idempotencyKey": "={{$json.body.pageUuid}}"
+      },
+      "id": "narrareach",
+      "name": "Schedule Article",
+      "type": "n8n-nodes-narrareach.narrareach",
+      "typeVersion": 1,
+      "position": [280, 0]
+    }
+  ],
+  "connections": {
+    "Receive Logseq Page": { "main": [[{ "node": "Schedule Article", "type": "main", "index": 0 }]] }
+  },
+  "settings": {}
+}

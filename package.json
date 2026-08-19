@@ -1,0 +1,55 @@
+{
+  "name": "n8n-nodes-narrareach",
+  "version": "0.1.1",
+  "description": "Schedule and manage Narrareach articles and Notes from n8n.",
+  "license": "MIT",
+  "homepage": "https://www.narrareach.com",
+  "keywords": [
+    "n8n-community-node-package",
+    "narrareach",
+    "substack",
+    "medium",
+    "linkedin",
+    "content-scheduling"
+  ],
+  "author": {
+    "name": "Narrareach",
+    "email": "ian.kiprono@narrareach.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iancarson/n8n-nodes-narrareach.git"
+  },
+  "scripts": {
+    "build": "n8n-node build",
+    "dev": "n8n-node dev",
+    "lint": "n8n-node lint",
+    "release": "n8n-node release",
+    "test": "tsx test/transport.test.ts && tsx test/node-execution.test.ts",
+    "prepublishOnly": "npm run test && n8n-node prerelease"
+  },
+  "files": [
+    "dist",
+    "examples"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "strict": true,
+    "credentials": [
+      "dist/credentials/NarrareachApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/Narrareach/Narrareach.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@n8n/node-cli": "0.43.4",
+    "eslint": "9.39.4",
+    "prettier": "3.8.3",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  }
+}

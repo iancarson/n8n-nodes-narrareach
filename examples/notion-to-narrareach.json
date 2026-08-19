@@ -1,0 +1,42 @@
+{
+  "name": "Notion to Narrareach",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual",
+      "name": "Run Workflow",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": { "resource": "databasePage", "operation": "getAll", "returnAll": true },
+      "id": "notion",
+      "name": "Read Ready Notion Pages",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "operation": "scheduleArticle",
+        "title": "={{$json.properties.Name.title[0].plain_text}}",
+        "contentHtml": "={{$json.properties.Content.rich_text[0].plain_text}}",
+        "articlePlatforms": ["SUBSTACK"],
+        "scheduledFor": "={{$json.properties['Publish At'].date.start}}",
+        "timezone": "UTC",
+        "idempotencyKey": "={{$json.id}}"
+      },
+      "id": "narrareach",
+      "name": "Schedule Article",
+      "type": "n8n-nodes-narrareach.narrareach",
+      "typeVersion": 1,
+      "position": [500, 0]
+    }
+  ],
+  "connections": {
+    "Run Workflow": { "main": [[{ "node": "Read Ready Notion Pages", "type": "main", "index": 0 }]] },
+    "Read Ready Notion Pages": { "main": [[{ "node": "Schedule Article", "type": "main", "index": 0 }]] }
+  },
+  "settings": {}
+}
