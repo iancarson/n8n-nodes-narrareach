@@ -39,7 +39,7 @@ const notePlatformOptions = [
 ];
 
 const showFor = (operations: NarrareachOperation[]) => ({ show: { operation: operations } });
-const NARRAREACH_CLIENT_HEADER = 'n8n-nodes-narrareach/0.1.2';
+const NARRAREACH_CLIENT_HEADER = 'n8n-nodes-narrareach/0.1.3';
 
 export class Narrareach implements INodeType {
 	description: INodeTypeDescription = {
@@ -152,6 +152,14 @@ export class Narrareach implements INodeType {
 				options: platformOptions,
 				required: true,
 				default: ['SUBSTACK'],
+				displayOptions: showFor(['scheduleArticle']),
+			},
+			{
+				displayName: 'Substack Publication',
+				name: 'publication',
+				type: 'string',
+				default: '',
+				description: 'Publication name, handle, or URL. Required when the account has multiple Substack publications.',
 				displayOptions: showFor(['scheduleArticle']),
 			},
 			{
@@ -282,6 +290,8 @@ export class Narrareach implements INodeType {
 						subtitle: (this.getNodeParameter('subtitle', itemIndex, '') as string) || undefined,
 						contentHtml: resolveRelativeArticleMediaUrls(contentHtml, sourceUrl),
 						platforms: this.getNodeParameter('articlePlatforms', itemIndex) as string[],
+						publication:
+							(this.getNodeParameter('publication', itemIndex, '') as string) || undefined,
 						scheduledFor: normalizeScheduledFor(
 							this.getNodeParameter('scheduledFor', itemIndex),
 							timezone,
