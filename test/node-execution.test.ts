@@ -61,7 +61,7 @@ async function testScheduleNoteExecution() {
 		method: 'POST',
 		url: 'https://www.narrareach.com/api/v1/notes',
 		json: true,
-		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.2' },
+		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.3' },
 		body: {
 			content: 'A concise update',
 			contentJson: { type: 'doc' },
@@ -90,6 +90,7 @@ async function testScheduleArticleExecution() {
 			contentHtml: '<p>Before</p><video><source src="../../media/demo.mp4" type="video/mp4"></video>',
 			sourceUrl: 'https://example.com/posts/a-hugo-article/',
 			articlePlatforms: ['SUBSTACK'],
+			publication: '@recommendedbyai',
 			scheduledFor: '2026-09-01T10:00:00',
 			timezone: 'UTC',
 			coverImageUrl: 'https://cdn.example.com/cover.jpg',
@@ -110,12 +111,13 @@ async function testScheduleArticleExecution() {
 		method: 'POST',
 		url: 'https://www.narrareach.com/api/v1/articles',
 		json: true,
-		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.2' },
+		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.3' },
 		body: {
 			title: 'A Hugo article',
 			subtitle: 'Imported through RSS',
 			contentHtml: '<p>Before</p><video><source src="https://example.com/media/demo.mp4" type="video/mp4"></video>',
 			platforms: ['SUBSTACK'],
+			publication: '@recommendedbyai',
 			scheduledFor: '2026-09-01T10:00:00.000Z',
 			timezone: 'UTC',
 			coverImage: { sourceType: 'url', url: 'https://cdn.example.com/cover.jpg' },
@@ -152,7 +154,7 @@ async function testRescheduleExecutionNormalizesN8nDateTime() {
 		method: 'PATCH',
 		url: 'https://www.narrareach.com/api/v1/article-schedules/article-1',
 		json: true,
-		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.2' },
+		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.3' },
 		body: {
 			scheduledFor: '2026-09-01T10:00:00.000Z',
 			timezone: 'UTC',
@@ -179,8 +181,8 @@ async function testArticleStatusAndCancelExecution() {
 	}, request) as never);
 
 	assertEqual(requests, [
-		{ method: 'GET', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.2' } },
-		{ method: 'DELETE', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.2' } },
+		{ method: 'GET', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.3' } },
+		{ method: 'DELETE', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.3' } },
 	], 'Article status and cancellation must use the stable public schedule routes');
 }
 
