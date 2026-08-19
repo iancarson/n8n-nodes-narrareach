@@ -11,6 +11,7 @@ import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workf
 import {
 	buildNarrareachRequest,
 	commaSeparatedValues,
+	normalizeScheduledFor,
 	parseOptionalJson,
 	resolveRelativeArticleMediaUrls,
 	type NarrareachOperation,
@@ -38,7 +39,7 @@ const notePlatformOptions = [
 ];
 
 const showFor = (operations: NarrareachOperation[]) => ({ show: { operation: operations } });
-const NARRAREACH_CLIENT_HEADER = 'n8n-nodes-narrareach/0.1.1';
+const NARRAREACH_CLIENT_HEADER = 'n8n-nodes-narrareach/0.1.2';
 
 export class Narrareach implements INodeType {
 	description: INodeTypeDescription = {
@@ -275,13 +276,17 @@ export class Narrareach implements INodeType {
 					const coverImageUrl = this.getNodeParameter('coverImageUrl', itemIndex, '') as string;
 					const sourceUrl = this.getNodeParameter('sourceUrl', itemIndex, '') as string;
 					const contentHtml = this.getNodeParameter('contentHtml', itemIndex) as string;
+					const timezone = this.getNodeParameter('timezone', itemIndex, 'UTC') as string;
 					body = withoutUndefined({
 						title: this.getNodeParameter('title', itemIndex) as string,
 						subtitle: (this.getNodeParameter('subtitle', itemIndex, '') as string) || undefined,
 						contentHtml: resolveRelativeArticleMediaUrls(contentHtml, sourceUrl),
 						platforms: this.getNodeParameter('articlePlatforms', itemIndex) as string[],
-						scheduledFor: this.getNodeParameter('scheduledFor', itemIndex) as string,
-						timezone: this.getNodeParameter('timezone', itemIndex, 'UTC') as string,
+						scheduledFor: normalizeScheduledFor(
+							this.getNodeParameter('scheduledFor', itemIndex),
+							timezone,
+						),
+						timezone,
 						coverImage: coverImageUrl
 							? { sourceType: 'url', url: coverImageUrl }
 							: undefined,
@@ -291,13 +296,17 @@ export class Narrareach implements INodeType {
 						idempotencyKey: this.getNodeParameter('idempotencyKey', itemIndex) as string,
 					});
 				} else if (operation === 'scheduleNote') {
+					const timezone = this.getNodeParameter('timezone', itemIndex, 'UTC') as string;
 					body = withoutUndefined({
 						content: this.getNodeParameter('content', itemIndex) as string,
 						contentJson: parseOptionalJson(this.getNodeParameter('contentJson', itemIndex, '')),
 						platforms: this.getNodeParameter('notePlatforms', itemIndex) as string[],
 						mode: 'schedule',
-						scheduledFor: this.getNodeParameter('scheduledFor', itemIndex) as string,
-						timezone: this.getNodeParameter('timezone', itemIndex, 'UTC') as string,
+						scheduledFor: normalizeScheduledFor(
+							this.getNodeParameter('scheduledFor', itemIndex),
+							timezone,
+						),
+						timezone,
 						imageUrls: commaSeparatedValues(this.getNodeParameter('imageUrls', itemIndex, '')),
 						videoUrls: commaSeparatedValues(this.getNodeParameter('videoUrls', itemIndex, '')),
 						threadsTopicTag:
@@ -310,9 +319,13 @@ export class Narrareach implements INodeType {
 						: this.getNodeParameter('mutableResource', itemIndex)) as NarrareachResource;
 					id = this.getNodeParameter('id', itemIndex) as string;
 					if (operation === 'reschedule') {
+						const timezone = this.getNodeParameter('timezone', itemIndex, 'UTC') as string;
 						body = {
-							scheduledFor: this.getNodeParameter('scheduledFor', itemIndex) as string,
-							timezone: this.getNodeParameter('timezone', itemIndex, 'UTC') as string,
+							scheduledFor: normalizeScheduledFor(
+								this.getNodeParameter('scheduledFor', itemIndex),
+								timezone,
+							),
+							timezone,
 						};
 					}
 				}
