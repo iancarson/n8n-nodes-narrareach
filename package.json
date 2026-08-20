@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-narrareach",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Schedule and manage Narrareach articles and Notes from n8n.",
   "license": "MIT",
   "homepage": "https://www.narrareach.com",
@@ -25,7 +25,7 @@
     "dev": "n8n-node dev",
     "lint": "n8n-node lint",
     "release": "n8n-node release",
-    "test": "tsx test/transport.test.ts && tsx test/node-execution.test.ts",
+    "test": "tsx test/transport.test.ts && tsx test/node-execution.test.ts && tsx test/codex-metadata.test.ts",
     "prepublishOnly": "npm run test && n8n-node prerelease"
   },
   "files": [
