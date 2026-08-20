@@ -39,7 +39,7 @@ const notePlatformOptions = [
 ];
 
 const showFor = (operations: NarrareachOperation[]) => ({ show: { operation: operations } });
-const NARRAREACH_CLIENT_HEADER = 'n8n-nodes-narrareach/0.1.3';
+const NARRAREACH_CLIENT_HEADER = 'n8n-nodes-narrareach/0.1.4';
 
 export class Narrareach implements INodeType {
 	description: INodeTypeDescription = {
