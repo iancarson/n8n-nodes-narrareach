@@ -1,6 +1,6 @@
 import type { IHttpRequestOptions } from 'n8n-workflow';
 
-import { Narrareach } from '../nodes/Narrareach/Narrareach.node';
+import { Narrareach, substackAudienceToPaidContent } from '../nodes/Narrareach/Narrareach.node';
 
 function assert(condition: unknown, message: string): asserts condition {
 	if (!condition) throw new Error(message);
@@ -10,7 +10,11 @@ function assertEqual(actual: unknown, expected: unknown, message: string) {
 	assert(JSON.stringify(actual) === JSON.stringify(expected), message);
 }
 
-function executionContext(parameters: Record<string, unknown>, request: (options: IHttpRequestOptions) => unknown) {
+function executionContext(
+	parameters: Record<string, unknown>,
+	request: (options: IHttpRequestOptions) => unknown,
+	continueOnFail = false,
+) {
 	return {
 		getInputData: () => [{ json: { sourceId: 'source-1' } }],
 		getNodeParameter: (name: string, _itemIndex: number, fallback?: unknown) =>
@@ -20,7 +24,7 @@ function executionContext(parameters: Record<string, unknown>, request: (options
 			baseUrl: 'https://www.narrareach.com/',
 		}),
 		getNode: () => ({ name: 'Narrareach', type: 'narrareach', typeVersion: 1, position: [0, 0] }),
-		continueOnFail: () => false,
+		continueOnFail: () => continueOnFail,
 		helpers: {
 			httpRequestWithAuthentication: async function (
 				this: unknown,
@@ -42,7 +46,7 @@ async function testScheduleNoteExecution() {
 			content: 'A concise update',
 			contentJson: '{"type":"doc"}',
 			notePlatforms: ['THREADS', 'BLUESKY'],
-			scheduledFor: '2026-09-01T10:00:00',
+			scheduledFor: '2026-08-22T16:48:07.475+02:00',
 			timezone: 'America/Toronto',
 			imageUrls: 'https://cdn.example.com/one.jpg, https://cdn.example.com/two.jpg',
 			videoUrls: '',
@@ -61,13 +65,13 @@ async function testScheduleNoteExecution() {
 		method: 'POST',
 		url: 'https://www.narrareach.com/api/v1/notes',
 		json: true,
-		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.4' },
+		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.8' },
 		body: {
 			content: 'A concise update',
 			contentJson: { type: 'doc' },
 			platforms: ['THREADS', 'BLUESKY'],
 			mode: 'schedule',
-			scheduledFor: '2026-09-01T14:00:00.000Z',
+			scheduledFor: '2026-08-22T16:48:07.475+02:00',
 			timezone: 'America/Toronto',
 			imageUrls: ['https://cdn.example.com/one.jpg', 'https://cdn.example.com/two.jpg'],
 			threadsTopicTag: 'Independent publishing',
@@ -90,13 +94,13 @@ async function testScheduleArticleExecution() {
 			contentHtml: '<p>Before</p><video><source src="../../media/demo.mp4" type="video/mp4"></video>',
 			sourceUrl: 'https://example.com/posts/a-hugo-article/',
 			articlePlatforms: ['SUBSTACK'],
-			publication: '@recommendedbyai',
-			scheduledFor: '2026-09-01T10:00:00',
-			timezone: 'UTC',
+			scheduledFor: '2026-08-22T16:48:07.475+02:00',
+			timezone: 'America/Toronto',
 			coverImageUrl: 'https://cdn.example.com/cover.jpg',
 			mediaJson: '',
 			tags: 'hugo, publishing',
 			sendToNewsletter: true,
+			substackAudience: 'paid',
 			idempotencyKey: 'source-1',
 		},
 		(options) => {
@@ -111,18 +115,18 @@ async function testScheduleArticleExecution() {
 		method: 'POST',
 		url: 'https://www.narrareach.com/api/v1/articles',
 		json: true,
-		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.4' },
+		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.8' },
 		body: {
 			title: 'A Hugo article',
 			subtitle: 'Imported through RSS',
 			contentHtml: '<p>Before</p><video><source src="https://example.com/media/demo.mp4" type="video/mp4"></video>',
 			platforms: ['SUBSTACK'],
-			publication: '@recommendedbyai',
-			scheduledFor: '2026-09-01T10:00:00.000Z',
-			timezone: 'UTC',
+			scheduledFor: '2026-08-22T16:48:07.475+02:00',
+			timezone: 'America/Toronto',
 			coverImage: { sourceType: 'url', url: 'https://cdn.example.com/cover.jpg' },
 			tags: ['hugo', 'publishing'],
 			sendToNewsletter: true,
+			isPaidContent: true,
 			idempotencyKey: 'source-1',
 		},
 	}, 'Schedule Article must resolve Hugo media URLs and map parameters to the public Articles request');
@@ -132,34 +136,32 @@ async function testScheduleArticleExecution() {
 	}]], 'Schedule Article must return the provider response with item pairing');
 }
 
-async function testRescheduleExecutionNormalizesN8nDateTime() {
-	let capturedRequest: IHttpRequestOptions | null = null;
-	const context = executionContext(
-		{
-			operation: 'reschedule',
-			mutableResource: 'article',
-			id: 'article-1',
-			scheduledFor: '2026-09-01T10:00:00',
-			timezone: 'UTC',
-		},
-		(options) => {
-			capturedRequest = options;
-			return { success: true };
-		},
+function testSoleSubstackPublicationCanBeOmitted() {
+	const publicationProperty = new Narrareach().description.properties.find(
+		(property) => property.name === 'publication',
 	);
+	assert(publicationProperty, 'the n8n node must expose the Substack publication field');
+	assert(
+		publicationProperty.required !== true,
+		'the publication field must be optional when Narrareach can select the sole active publication',
+	);
+}
 
-	await new Narrareach().execute.call(context as never);
+function testArticleVideoCompatibilityNotice() {
+	const notice = new Narrareach().description.properties.find(
+		(property) => property.name === 'articleVideoCompatibilityNotice',
+	);
+	assert(notice && typeof notice.displayName === 'string', 'the article form must explain video compatibility');
+	assert(
+		notice.displayName.includes('YouTube and Vimeo') && notice.displayName.includes('Medium'),
+		'the n8n node must not incorrectly describe all inline video as Substack-only',
+	);
+}
 
-	assertEqual(capturedRequest, {
-		method: 'PATCH',
-		url: 'https://www.narrareach.com/api/v1/article-schedules/article-1',
-		json: true,
-		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.4' },
-		body: {
-			scheduledFor: '2026-09-01T10:00:00.000Z',
-			timezone: 'UTC',
-		},
-	}, 'Reschedule must normalize the timezone-less value emitted by the n8n date-time control');
+function testSubstackAudienceMapping() {
+	assertEqual(substackAudienceToPaidContent('default'), undefined, 'legacy workflows must omit the field');
+	assertEqual(substackAudienceToPaidContent('free'), false, 'free articles must disable the paywall');
+	assertEqual(substackAudienceToPaidContent('paid'), true, 'paid articles must enable the paywall');
 }
 
 async function testArticleStatusAndCancelExecution() {
@@ -181,14 +183,23 @@ async function testArticleStatusAndCancelExecution() {
 	}, request) as never);
 
 	assertEqual(requests, [
-		{ method: 'GET', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.4' } },
-		{ method: 'DELETE', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.4' } },
+		{ method: 'GET', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.8' } },
+		{ method: 'DELETE', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.8' } },
 	], 'Article status and cancellation must use the stable public schedule routes');
 }
 
 async function testApiErrorPropagation() {
 	const providerError = Object.assign(new Error('Request rejected'), {
-		response: { status: 409, data: { error: { code: 'PLATFORM_NOT_READY' } } },
+		response: {
+			status: 400,
+			data: {
+				error: {
+					code: 'VALIDATION_ERROR',
+					message: 'Invalid article request.',
+					details: { fieldErrors: { scheduledFor: ['Invalid ISO datetime'] } },
+				},
+			},
+		},
 	});
 	const context = executionContext(
 		{
@@ -207,12 +218,38 @@ async function testApiErrorPropagation() {
 	}
 	assert(thrown instanceof Error, 'HTTP failures must reject execution');
 	assert(thrown.name !== 'NodeOperationError', 'HTTP failures must be surfaced as Node API errors');
+	assert(
+		thrown.message === 'Invalid article request.',
+		'HTTP failures must retain Narrareach\'s safe API message instead of a generic status label',
+	);
+	assert(
+		'description' in thrown && thrown.description === 'VALIDATION_ERROR — scheduledFor: Invalid ISO datetime',
+		'HTTP failures must retain the structured code and bounded field validation details',
+	);
+
+	const continued = await new Narrareach().execute.call(executionContext(
+		{
+			operation: 'getStatus',
+			resource: 'note',
+			id: 'note-1',
+		},
+		() => { throw providerError; },
+		true,
+	) as never);
+	const continuedError = continued[0][0]?.error;
+	assert(
+		continuedError?.message === 'Invalid article request.'
+			&& continuedError.description === 'VALIDATION_ERROR — scheduledFor: Invalid ISO datetime',
+		'Continue On Fail must preserve the same safe structured Narrareach error per item',
+	);
 }
 
 async function run() {
+	testSubstackAudienceMapping();
+	testSoleSubstackPublicationCanBeOmitted();
+	testArticleVideoCompatibilityNotice();
 	await testScheduleArticleExecution();
 	await testScheduleNoteExecution();
-	await testRescheduleExecutionNormalizesN8nDateTime();
 	await testArticleStatusAndCancelExecution();
 	await testApiErrorPropagation();
 }

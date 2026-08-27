@@ -1,9 +1,9 @@
 {
   "name": "n8n-nodes-narrareach",
-  "version": "0.1.4",
+  "version": "0.1.8",
   "description": "Schedule and manage Narrareach articles and Notes from n8n.",
   "license": "MIT",
-  "homepage": "https://www.narrareach.com",
+  "homepage": "https://www.narrareach.com/integrations/n8n",
   "keywords": [
     "n8n-community-node-package",
     "narrareach",
@@ -43,7 +43,7 @@
     ]
   },
   "devDependencies": {
-    "@n8n/node-cli": "0.43.4",
+    "@n8n/node-cli": "^0.45.4",
     "eslint": "9.39.4",
     "prettier": "3.8.3",
     "tsx": "4.20.6",

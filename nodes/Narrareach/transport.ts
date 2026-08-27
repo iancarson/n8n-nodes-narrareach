@@ -1,5 +1,3 @@
-import { tryToParseDateTime } from 'n8n-workflow';
-
 export type NarrareachResource = 'article' | 'note' | 'operation';
 export type NarrareachOperation =
 	| 'scheduleArticle'
@@ -62,12 +60,6 @@ export function commaSeparatedValues(value: unknown): string[] | undefined {
 		.map((item) => item.trim())
 		.filter(Boolean);
 	return values.length > 0 ? values : undefined;
-}
-
-export function normalizeScheduledFor(value: unknown, timezone: string): string {
-	const scheduledFor = tryToParseDateTime(value, timezone).toUTC().toISO();
-	if (!scheduledFor) throw new Error('Scheduled For must be a valid date and time.');
-	return scheduledFor;
 }
 
 export function resolveRelativeArticleMediaUrls(contentHtml: string, sourceUrl: string): string {
