@@ -11,7 +11,6 @@ import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workf
 import {
 	buildNarrareachRequest,
 	commaSeparatedValues,
-	normalizeScheduledFor,
 	parseOptionalJson,
 	resolveRelativeArticleMediaUrls,
 	type NarrareachOperation,
@@ -39,7 +38,55 @@ const notePlatformOptions = [
 ];
 
 const showFor = (operations: NarrareachOperation[]) => ({ show: { operation: operations } });
-const NARRAREACH_CLIENT_HEADER = 'n8n-nodes-narrareach/0.1.4';
+const NARRAREACH_CLIENT_HEADER = 'n8n-nodes-narrareach/0.1.8';
+
+export function substackAudienceToPaidContent(value: string): boolean | undefined {
+	if (value === 'paid') return true;
+	if (value === 'free') return false;
+	return undefined;
+}
+
+type NarrareachApiErrorOptions = {
+	message: string;
+	description?: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function boundedString(value: unknown, maxLength = 300): string | undefined {
+	return typeof value === 'string' && value.trim()
+		? value.trim().slice(0, maxLength)
+		: undefined;
+}
+
+function formatValidationDetails(value: unknown): string[] {
+	if (!isRecord(value) || !isRecord(value.fieldErrors)) return [];
+	const details: string[] = [];
+	for (const [field, messages] of Object.entries(value.fieldErrors)) {
+		if (!Array.isArray(messages)) continue;
+		for (const message of messages) {
+			const safeMessage = boundedString(message, 160);
+			if (safeMessage) details.push(`${field}: ${safeMessage}`);
+			if (details.length === 3) return details;
+		}
+	}
+	return details;
+}
+
+function getNarrareachApiErrorOptions(error: unknown): NarrareachApiErrorOptions | undefined {
+	if (!isRecord(error) || !isRecord(error.response) || !isRecord(error.response.data)) return undefined;
+	const apiError = error.response.data.error;
+	if (!isRecord(apiError)) return undefined;
+
+	const message = boundedString(apiError.message);
+	if (!message) return undefined;
+	const code = boundedString(apiError.code, 80);
+	const details = formatValidationDetails(apiError.details);
+	const description = [code, details.join('; ')].filter(Boolean).join(' — ');
+	return { message, ...(description ? { description } : {}) };
+}
 
 export class Narrareach implements INodeType {
 	description: INodeTypeDescription = {
@@ -107,7 +154,7 @@ export class Narrareach implements INodeType {
 				displayOptions: showFor(['getStatus', 'reschedule', 'cancel']),
 			},
 			{
-				displayName: 'Inline video is supported only when Substack is the sole article destination. Remove the video before adding Medium, LinkedIn, or X.',
+				displayName: 'YouTube and Vimeo links embedded in the article can remain inline on Medium. YouTube embeds can remain inline on Substack. Uploaded video files are available only for Substack-only schedules; other destinations keep unsupported videos as links.',
 				name: 'articleVideoCompatibilityNotice',
 				type: 'notice',
 				default: '',
@@ -159,8 +206,10 @@ export class Narrareach implements INodeType {
 				name: 'publication',
 				type: 'string',
 				default: '',
-				description: 'Publication name, handle, or URL. Required when the account has multiple Substack publications.',
-				displayOptions: showFor(['scheduleArticle']),
+				description: 'Optional when one Substack publication is active. If several are connected, enter the exact name, handle, or URL.',
+				displayOptions: {
+					show: { operation: ['scheduleArticle'], articlePlatforms: ['SUBSTACK'] },
+				},
 			},
 			{
 				displayName: 'Cover Image URL',
@@ -190,6 +239,20 @@ export class Narrareach implements INodeType {
 				name: 'sendToNewsletter',
 				type: 'boolean',
 				default: false,
+				displayOptions: showFor(['scheduleArticle']),
+			},
+			{
+				displayName: 'Substack Access',
+				name: 'substackAudience',
+				type: 'options',
+				options: [
+					{ name: 'Use Narrareach Default (Free)', value: 'default' },
+					{ name: 'Free for Everyone', value: 'free' },
+					{ name: 'Paid Subscribers Only', value: 'paid' },
+				],
+				default: 'default',
+				description:
+					'Controls the Substack paywall when Substack is selected. This can be an expression mapped from a Notion select field.',
 				displayOptions: showFor(['scheduleArticle']),
 			},
 			{
@@ -284,7 +347,6 @@ export class Narrareach implements INodeType {
 					const coverImageUrl = this.getNodeParameter('coverImageUrl', itemIndex, '') as string;
 					const sourceUrl = this.getNodeParameter('sourceUrl', itemIndex, '') as string;
 					const contentHtml = this.getNodeParameter('contentHtml', itemIndex) as string;
-					const timezone = this.getNodeParameter('timezone', itemIndex, 'UTC') as string;
 					body = withoutUndefined({
 						title: this.getNodeParameter('title', itemIndex) as string,
 						subtitle: (this.getNodeParameter('subtitle', itemIndex, '') as string) || undefined,
@@ -292,31 +354,27 @@ export class Narrareach implements INodeType {
 						platforms: this.getNodeParameter('articlePlatforms', itemIndex) as string[],
 						publication:
 							(this.getNodeParameter('publication', itemIndex, '') as string) || undefined,
-						scheduledFor: normalizeScheduledFor(
-							this.getNodeParameter('scheduledFor', itemIndex),
-							timezone,
-						),
-						timezone,
+						scheduledFor: this.getNodeParameter('scheduledFor', itemIndex) as string,
+						timezone: this.getNodeParameter('timezone', itemIndex, 'UTC') as string,
 						coverImage: coverImageUrl
 							? { sourceType: 'url', url: coverImageUrl }
 							: undefined,
 						media: parseOptionalJson(this.getNodeParameter('mediaJson', itemIndex, '')),
 						tags: commaSeparatedValues(this.getNodeParameter('tags', itemIndex, '')),
 						sendToNewsletter: this.getNodeParameter('sendToNewsletter', itemIndex, false) as boolean,
+						isPaidContent: substackAudienceToPaidContent(
+							this.getNodeParameter('substackAudience', itemIndex, 'default') as string,
+						),
 						idempotencyKey: this.getNodeParameter('idempotencyKey', itemIndex) as string,
 					});
 				} else if (operation === 'scheduleNote') {
-					const timezone = this.getNodeParameter('timezone', itemIndex, 'UTC') as string;
 					body = withoutUndefined({
 						content: this.getNodeParameter('content', itemIndex) as string,
 						contentJson: parseOptionalJson(this.getNodeParameter('contentJson', itemIndex, '')),
 						platforms: this.getNodeParameter('notePlatforms', itemIndex) as string[],
 						mode: 'schedule',
-						scheduledFor: normalizeScheduledFor(
-							this.getNodeParameter('scheduledFor', itemIndex),
-							timezone,
-						),
-						timezone,
+						scheduledFor: this.getNodeParameter('scheduledFor', itemIndex) as string,
+						timezone: this.getNodeParameter('timezone', itemIndex, 'UTC') as string,
 						imageUrls: commaSeparatedValues(this.getNodeParameter('imageUrls', itemIndex, '')),
 						videoUrls: commaSeparatedValues(this.getNodeParameter('videoUrls', itemIndex, '')),
 						threadsTopicTag:
@@ -329,13 +387,9 @@ export class Narrareach implements INodeType {
 						: this.getNodeParameter('mutableResource', itemIndex)) as NarrareachResource;
 					id = this.getNodeParameter('id', itemIndex) as string;
 					if (operation === 'reschedule') {
-						const timezone = this.getNodeParameter('timezone', itemIndex, 'UTC') as string;
 						body = {
-							scheduledFor: normalizeScheduledFor(
-								this.getNodeParameter('scheduledFor', itemIndex),
-								timezone,
-							),
-							timezone,
+							scheduledFor: this.getNodeParameter('scheduledFor', itemIndex) as string,
+							timezone: this.getNodeParameter('timezone', itemIndex, 'UTC') as string,
 						};
 					}
 				}
@@ -358,21 +412,35 @@ export class Narrareach implements INodeType {
 
 				output.push({ json: response as IDataObject, pairedItem: itemIndex });
 			} catch (error) {
+				let executionError: NodeApiError | NodeOperationError;
+				if (error && typeof error === 'object' && 'response' in error) {
+					const apiErrorOptions = getNarrareachApiErrorOptions(error);
+					if (apiErrorOptions && isRecord(error.response)) {
+						executionError = new NodeApiError(this.getNode(), {
+							status: error.response.status,
+							message: apiErrorOptions.message,
+							description: apiErrorOptions.description,
+						} as never, { itemIndex, ...apiErrorOptions });
+					} else {
+						executionError = new NodeApiError(this.getNode(), error as never, { itemIndex });
+					}
+				} else {
+					executionError = new NodeOperationError(
+						this.getNode(),
+						error instanceof Error ? error : new Error('Narrareach request failed.'),
+						{ itemIndex },
+					);
+				}
+
 				if (this.continueOnFail()) {
-					const operationError = new NodeOperationError(this.getNode(), error as Error, {
-						itemIndex,
-					});
 					output.push({
 						json: items[itemIndex].json,
-						error: operationError,
+						error: executionError,
 						pairedItem: itemIndex,
 					});
 					continue;
 				}
-				if (error && typeof error === 'object' && 'response' in error) {
-					throw new NodeApiError(this.getNode(), error as never, { itemIndex });
-				}
-				throw new NodeOperationError(this.getNode(), error as Error, { itemIndex });
+				throw executionError;
 			}
 		}
 

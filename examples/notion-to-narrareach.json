@@ -23,6 +23,7 @@
         "title": "={{$json.properties.Name.title[0].plain_text}}",
         "contentHtml": "={{$json.properties.Content.rich_text[0].plain_text}}",
         "articlePlatforms": ["SUBSTACK"],
+        "substackAudience": "={{$json.properties.Access.select.name === 'Paid' ? 'paid' : 'free'}}",
         "scheduledFor": "={{$json.properties['Publish At'].date.start}}",
         "timezone": "UTC",
         "idempotencyKey": "={{$json.id}}"

@@ -109,3 +109,15 @@ assertJsonEqual(
 	['SUBSTACK', 'LINKEDIN', 'X', 'BLUESKY', 'THREADS', 'INSTAGRAM', 'FACEBOOK', 'TIKTOK', 'PINTEREST'],
 	'Schedule Note must expose exactly the platforms accepted by POST /api/v1/notes',
 );
+
+const publication = new Narrareach().description.properties
+	.find((property) => property.name === 'publication');
+assert(
+	publication?.required !== true,
+	'Schedule Article must allow the API to select the sole active Substack publication',
+);
+assertJsonEqual(
+	publication?.displayOptions,
+	{ show: { operation: ['scheduleArticle'], articlePlatforms: ['SUBSTACK'] } },
+	'The Substack publication selector must be shown only for Substack article schedules',
+);
