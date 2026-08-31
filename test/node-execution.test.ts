@@ -138,6 +138,35 @@ async function testScheduleArticleExecution() {
 	}]], 'Schedule Article must return the provider response with item pairing');
 }
 
+async function testScheduleArticleOmitsStalePaywallMarkerWithoutSubstack() {
+	let capturedRequest: IHttpRequestOptions | null = null;
+	const context = executionContext(
+		{
+			operation: 'scheduleArticle',
+			title: 'A cross-posted article',
+			contentHtml: '<p>Public article</p>',
+			articlePlatforms: ['MEDIUM', 'LINKEDIN'],
+			scheduledFor: '2026-08-22T16:48:07.475+02:00',
+			timezone: 'America/Toronto',
+			paywallMarker: '{{NARRAREACH_PAYWALL}}',
+			idempotencyKey: 'source-1',
+		},
+		(options) => {
+			capturedRequest = options;
+			return { success: true, schedules: [{ id: 'article-2' }] };
+		},
+	);
+
+	await new Narrareach().execute.call(context as never);
+
+	assert(
+		capturedRequest !== null
+			&& capturedRequest.body !== undefined
+			&& !('paywallMarker' in capturedRequest.body),
+		'a hidden Substack paywall marker must not leak into non-Substack requests',
+	);
+}
+
 function testPaywallMarkerIsDiscoverable() {
 	const property = new Narrareach().description.properties.find(
 		(candidate) => candidate.name === 'paywallMarker',
@@ -265,6 +294,7 @@ async function run() {
 	testArticleVideoCompatibilityNotice();
 	testPaywallMarkerIsDiscoverable();
 	await testScheduleArticleExecution();
+	await testScheduleArticleOmitsStalePaywallMarkerWithoutSubstack();
 	await testScheduleNoteExecution();
 	await testArticleStatusAndCancelExecution();
 	await testApiErrorPropagation();

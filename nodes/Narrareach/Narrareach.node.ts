@@ -359,11 +359,12 @@ export class Narrareach implements INodeType {
 					const coverImageUrl = this.getNodeParameter('coverImageUrl', itemIndex, '') as string;
 					const sourceUrl = this.getNodeParameter('sourceUrl', itemIndex, '') as string;
 					const contentHtml = this.getNodeParameter('contentHtml', itemIndex) as string;
+					const articlePlatforms = this.getNodeParameter('articlePlatforms', itemIndex) as string[];
 					body = withoutUndefined({
 						title: this.getNodeParameter('title', itemIndex) as string,
 						subtitle: (this.getNodeParameter('subtitle', itemIndex, '') as string) || undefined,
 						contentHtml: resolveRelativeArticleMediaUrls(contentHtml, sourceUrl),
-						platforms: this.getNodeParameter('articlePlatforms', itemIndex) as string[],
+						platforms: articlePlatforms,
 						publication:
 							(this.getNodeParameter('publication', itemIndex, '') as string) || undefined,
 						scheduledFor: this.getNodeParameter('scheduledFor', itemIndex) as string,
@@ -377,8 +378,9 @@ export class Narrareach implements INodeType {
 						isPaidContent: substackAudienceToPaidContent(
 							this.getNodeParameter('substackAudience', itemIndex, 'default') as string,
 						),
-						paywallMarker:
-							(this.getNodeParameter('paywallMarker', itemIndex, '') as string) || undefined,
+						paywallMarker: articlePlatforms.includes('SUBSTACK')
+							? (this.getNodeParameter('paywallMarker', itemIndex, '') as string) || undefined
+							: undefined,
 						idempotencyKey: this.getNodeParameter('idempotencyKey', itemIndex) as string,
 					});
 				} else if (operation === 'scheduleNote') {
