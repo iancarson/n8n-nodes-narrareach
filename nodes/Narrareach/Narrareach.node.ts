@@ -38,7 +38,7 @@ const notePlatformOptions = [
 ];
 
 const showFor = (operations: NarrareachOperation[]) => ({ show: { operation: operations } });
-const NARRAREACH_CLIENT_HEADER = 'n8n-nodes-narrareach/0.1.8';
+const NARRAREACH_CLIENT_HEADER = 'n8n-nodes-narrareach/0.1.9';
 
 export function substackAudienceToPaidContent(value: string): boolean | undefined {
 	if (value === 'paid') return true;
@@ -256,6 +256,18 @@ export class Narrareach implements INodeType {
 				displayOptions: showFor(['scheduleArticle']),
 			},
 			{
+				displayName: 'Paywall Marker',
+				name: 'paywallMarker',
+				type: 'string',
+				default: '',
+				placeholder: '{{NARRAREACH_PAYWALL}}',
+				description:
+					'Optional exact text in Content HTML where the free preview ends. It must appear exactly once. Narrareach removes the marker, inserts Substack\'s native paywall, and marks the article as paid.',
+				displayOptions: {
+					show: { operation: ['scheduleArticle'], articlePlatforms: ['SUBSTACK'] },
+				},
+			},
+			{
 				displayName: 'Note Content',
 				name: 'content',
 				type: 'string',
@@ -347,11 +359,12 @@ export class Narrareach implements INodeType {
 					const coverImageUrl = this.getNodeParameter('coverImageUrl', itemIndex, '') as string;
 					const sourceUrl = this.getNodeParameter('sourceUrl', itemIndex, '') as string;
 					const contentHtml = this.getNodeParameter('contentHtml', itemIndex) as string;
+					const articlePlatforms = this.getNodeParameter('articlePlatforms', itemIndex) as string[];
 					body = withoutUndefined({
 						title: this.getNodeParameter('title', itemIndex) as string,
 						subtitle: (this.getNodeParameter('subtitle', itemIndex, '') as string) || undefined,
 						contentHtml: resolveRelativeArticleMediaUrls(contentHtml, sourceUrl),
-						platforms: this.getNodeParameter('articlePlatforms', itemIndex) as string[],
+						platforms: articlePlatforms,
 						publication:
 							(this.getNodeParameter('publication', itemIndex, '') as string) || undefined,
 						scheduledFor: this.getNodeParameter('scheduledFor', itemIndex) as string,
@@ -365,6 +378,9 @@ export class Narrareach implements INodeType {
 						isPaidContent: substackAudienceToPaidContent(
 							this.getNodeParameter('substackAudience', itemIndex, 'default') as string,
 						),
+						paywallMarker: articlePlatforms.includes('SUBSTACK')
+							? (this.getNodeParameter('paywallMarker', itemIndex, '') as string) || undefined
+							: undefined,
 						idempotencyKey: this.getNodeParameter('idempotencyKey', itemIndex) as string,
 					});
 				} else if (operation === 'scheduleNote') {

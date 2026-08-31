@@ -65,7 +65,7 @@ async function testScheduleNoteExecution() {
 		method: 'POST',
 		url: 'https://www.narrareach.com/api/v1/notes',
 		json: true,
-		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.8' },
+		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.9' },
 		body: {
 			content: 'A concise update',
 			contentJson: { type: 'doc' },
@@ -91,7 +91,7 @@ async function testScheduleArticleExecution() {
 			operation: 'scheduleArticle',
 			title: 'A Hugo article',
 			subtitle: 'Imported through RSS',
-			contentHtml: '<p>Before</p><video><source src="../../media/demo.mp4" type="video/mp4"></video>',
+			contentHtml: '<p>Before</p>{{NARRAREACH_PAYWALL}}<video><source src="../../media/demo.mp4" type="video/mp4"></video>',
 			sourceUrl: 'https://example.com/posts/a-hugo-article/',
 			articlePlatforms: ['SUBSTACK'],
 			scheduledFor: '2026-08-22T16:48:07.475+02:00',
@@ -101,6 +101,7 @@ async function testScheduleArticleExecution() {
 			tags: 'hugo, publishing',
 			sendToNewsletter: true,
 			substackAudience: 'paid',
+			paywallMarker: '{{NARRAREACH_PAYWALL}}',
 			idempotencyKey: 'source-1',
 		},
 		(options) => {
@@ -115,11 +116,11 @@ async function testScheduleArticleExecution() {
 		method: 'POST',
 		url: 'https://www.narrareach.com/api/v1/articles',
 		json: true,
-		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.8' },
+		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.9' },
 		body: {
 			title: 'A Hugo article',
 			subtitle: 'Imported through RSS',
-			contentHtml: '<p>Before</p><video><source src="https://example.com/media/demo.mp4" type="video/mp4"></video>',
+			contentHtml: '<p>Before</p>{{NARRAREACH_PAYWALL}}<video><source src="https://example.com/media/demo.mp4" type="video/mp4"></video>',
 			platforms: ['SUBSTACK'],
 			scheduledFor: '2026-08-22T16:48:07.475+02:00',
 			timezone: 'America/Toronto',
@@ -127,6 +128,7 @@ async function testScheduleArticleExecution() {
 			tags: ['hugo', 'publishing'],
 			sendToNewsletter: true,
 			isPaidContent: true,
+			paywallMarker: '{{NARRAREACH_PAYWALL}}',
 			idempotencyKey: 'source-1',
 		},
 	}, 'Schedule Article must resolve Hugo media URLs and map parameters to the public Articles request');
@@ -134,6 +136,48 @@ async function testScheduleArticleExecution() {
 		json: { success: true, schedules: [{ id: 'article-1' }] },
 		pairedItem: 0,
 	}]], 'Schedule Article must return the provider response with item pairing');
+}
+
+async function testScheduleArticleOmitsStalePaywallMarkerWithoutSubstack() {
+	let capturedRequest: IHttpRequestOptions | null = null;
+	const context = executionContext(
+		{
+			operation: 'scheduleArticle',
+			title: 'A cross-posted article',
+			contentHtml: '<p>Public article</p>',
+			articlePlatforms: ['MEDIUM', 'LINKEDIN'],
+			scheduledFor: '2026-08-22T16:48:07.475+02:00',
+			timezone: 'America/Toronto',
+			paywallMarker: '{{NARRAREACH_PAYWALL}}',
+			idempotencyKey: 'source-1',
+		},
+		(options) => {
+			capturedRequest = options;
+			return { success: true, schedules: [{ id: 'article-2' }] };
+		},
+	);
+
+	await new Narrareach().execute.call(context as never);
+
+	assert(
+		capturedRequest !== null
+			&& capturedRequest.body !== undefined
+			&& !('paywallMarker' in capturedRequest.body),
+		'a hidden Substack paywall marker must not leak into non-Substack requests',
+	);
+}
+
+function testPaywallMarkerIsDiscoverable() {
+	const property = new Narrareach().description.properties.find(
+		(candidate) => candidate.name === 'paywallMarker',
+	);
+	assert(property, 'the n8n article form must expose paywall placement');
+	assert(
+		typeof property.description === 'string'
+			&& property.description.includes('free preview')
+			&& property.description.includes('exactly once'),
+		'the paywall marker instructions must explain placement and validation',
+	);
 }
 
 function testSoleSubstackPublicationCanBeOmitted() {
@@ -183,8 +227,8 @@ async function testArticleStatusAndCancelExecution() {
 	}, request) as never);
 
 	assertEqual(requests, [
-		{ method: 'GET', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.8' } },
-		{ method: 'DELETE', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.8' } },
+		{ method: 'GET', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.9' } },
+		{ method: 'DELETE', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.1.9' } },
 	], 'Article status and cancellation must use the stable public schedule routes');
 }
 
@@ -248,7 +292,9 @@ async function run() {
 	testSubstackAudienceMapping();
 	testSoleSubstackPublicationCanBeOmitted();
 	testArticleVideoCompatibilityNotice();
+	testPaywallMarkerIsDiscoverable();
 	await testScheduleArticleExecution();
+	await testScheduleArticleOmitsStalePaywallMarkerWithoutSubstack();
 	await testScheduleNoteExecution();
 	await testArticleStatusAndCancelExecution();
 	await testApiErrorPropagation();
