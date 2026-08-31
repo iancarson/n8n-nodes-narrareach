@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-narrareach",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Schedule and manage Narrareach articles and Notes from n8n.",
   "license": "MIT",
   "homepage": "https://www.narrareach.com/integrations/n8n",

@@ -38,7 +38,7 @@ const notePlatformOptions = [
 ];
 
 const showFor = (operations: NarrareachOperation[]) => ({ show: { operation: operations } });
-const NARRAREACH_CLIENT_HEADER = 'n8n-nodes-narrareach/0.1.8';
+const NARRAREACH_CLIENT_HEADER = 'n8n-nodes-narrareach/0.1.9';
 
 export function substackAudienceToPaidContent(value: string): boolean | undefined {
 	if (value === 'paid') return true;
@@ -256,6 +256,18 @@ export class Narrareach implements INodeType {
 				displayOptions: showFor(['scheduleArticle']),
 			},
 			{
+				displayName: 'Paywall Marker',
+				name: 'paywallMarker',
+				type: 'string',
+				default: '',
+				placeholder: '{{NARRAREACH_PAYWALL}}',
+				description:
+					'Optional exact text in Content HTML where the free preview ends. It must appear exactly once. Narrareach removes the marker, inserts Substack\'s native paywall, and marks the article as paid.',
+				displayOptions: {
+					show: { operation: ['scheduleArticle'], articlePlatforms: ['SUBSTACK'] },
+				},
+			},
+			{
 				displayName: 'Note Content',
 				name: 'content',
 				type: 'string',
@@ -365,6 +377,8 @@ export class Narrareach implements INodeType {
 						isPaidContent: substackAudienceToPaidContent(
 							this.getNodeParameter('substackAudience', itemIndex, 'default') as string,
 						),
+						paywallMarker:
+							(this.getNodeParameter('paywallMarker', itemIndex, '') as string) || undefined,
 						idempotencyKey: this.getNodeParameter('idempotencyKey', itemIndex) as string,
 					});
 				} else if (operation === 'scheduleNote') {

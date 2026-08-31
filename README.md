@@ -22,6 +22,12 @@ then map it to **Substack Access**. The included Notion starter workflow demonst
 If only one Substack publication is active, Narrareach selects it automatically. If you have
 several, enter the exact publication name, handle, or URL in **Substack Publication**.
 
+To keep a free preview at the top of a paid Substack article, place a unique token such as
+`{{NARRAREACH_PAYWALL}}` between the free and paid sections of **Content HTML**, then enter the
+same token in **Paywall Marker**. The marker must appear exactly once. Narrareach removes it,
+inserts Substack's native paywall at that position, and enables paid delivery. Substack renders
+the appropriate subscribe or upgrade prompt for each reader.
+
 Inline HTML video from RSS/Hugo sources is preserved for Substack articles. When an article
 contains video, select Substack as its only destination. Medium, LinkedIn, and X article requests
 with inline video fail before a schedule is accepted, so the source content is never silently
