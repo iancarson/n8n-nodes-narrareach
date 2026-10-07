@@ -66,13 +66,14 @@ export async function getLinkedInAccounts(
 export async function getLinkedInPages(
 	this: ILoadOptionsFunctions,
 ): Promise<INodePropertyOptions[]> {
-	const response = await narrareachGet(this, '/api/v1/linkedin/destinations');
 	const accountId = currentString(this, 'linkedInAccountId');
 	const options: INodePropertyOptions[] = [{ name: 'None (Post as the Profile)', value: '' }];
+	if (!accountId) return options;
+	const response = await narrareachGet(this, '/api/v1/linkedin/destinations');
 	for (const destination of records(response.destinations)) {
 		const organizationUrn = trimmedString(destination.organizationUrn);
 		if (!organizationUrn) continue;
-		if (accountId && trimmedString(destination.accountId) !== accountId) continue;
+		if (trimmedString(destination.accountId) !== accountId) continue;
 		options.push({ name: trimmedString(destination.label) ?? organizationUrn, value: organizationUrn });
 	}
 	return options;
