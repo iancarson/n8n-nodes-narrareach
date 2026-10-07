@@ -1046,12 +1046,18 @@ export class Narrareach implements INodeType {
 					query = {
 						substackConnectionId: trimmedString(this.getNodeParameter('activityConnectionId', itemIndex, '')),
 					};
+					const replyKey = operation === 'replyToReaderActivity'
+						? trimmedString(this.getNodeParameter('idempotencyKey', itemIndex))
+						: undefined;
+					if (operation === 'replyToReaderActivity' && !replyKey) {
+						throw new NodeOperationError(this.getNode(), 'Add an Idempotency Key before sending a reply.', { itemIndex });
+					}
 					// The reply key travels in the body only; the API rejects a header that differs from it.
 					body = operation === 'updateReaderActivity'
 						? { triageState: this.getNodeParameter('triageState', itemIndex) as string }
 						: withoutUndefined({
 							text: this.getNodeParameter('replyText', itemIndex) as string,
-							idempotencyKey: trimmedString(this.getNodeParameter('idempotencyKey', itemIndex)),
+							idempotencyKey: replyKey,
 						});
 				} else if (operation === 'getStatsOutcomes') {
 					const period = this.getNodeParameter('statsPeriod', itemIndex, '30d') as string;

@@ -583,6 +583,15 @@ async function testLoadOptionsLookups() {
 		{ name: 'Analytical Engines', value: 'urn:li:organization:1' },
 	], 'LinkedIn Page lookup must list only Pages for the selected account');
 
+	const missingAccountRequests: IHttpRequestOptions[] = [];
+	const missingAccountPages = await getLinkedInPages.call(loadOptionsContext(
+		{ linkedInAccountId: '   ' },
+		{ destinations: [{ accountId: 'acct_1', organizationUrn: 'urn:li:organization:1', label: 'Page' }] },
+		missingAccountRequests,
+	) as never);
+	assertEqual(missingAccountPages, [{ name: 'None (Post as the Profile)', value: '' }], 'Pages require an explicit account selection');
+	assertEqual(missingAccountRequests, [], 'Do not fetch Pages before an account is selected');
+
 	const publications = await getMediumPublications.call(loadOptionsContext(
 		{},
 		{
@@ -699,9 +708,17 @@ async function testReplyToReaderActivity() {
 	await new Narrareach().execute.call(
 		executionContext({ ...base, idempotencyKey: ' comment-1 ' }, request) as never,
 	);
-	await new Narrareach().execute.call(
-		executionContext({ ...base, idempotencyKey: '   ' }, request) as never,
-	);
+	for (const idempotencyKey of ['', '   ']) {
+		let rejected = false;
+		try {
+			await new Narrareach().execute.call(executionContext({ ...base, idempotencyKey }, request) as never);
+		} catch {
+			rejected = true;
+		}
+		assert(rejected, 'Blank reply keys must fail before sending a request');
+	}
+	const failedItems = await new Narrareach().execute.call(executionContext({ ...base, idempotencyKey: ' ' }, request, true) as never);
+	assert(Boolean(failedItems[0][0].error), 'Continue on fail must return an item error for a blank reply key');
 
 	assertEqual(requests, [
 		{
@@ -710,13 +727,6 @@ async function testReplyToReaderActivity() {
 			json: true,
 			headers: clientHeaders,
 			body: { text: 'Thanks for reading!', idempotencyKey: 'comment-1' },
-		},
-		{
-			method: 'POST',
-			url: 'https://www.narrareach.com/api/v1/reader-activities/activity-1/replies',
-			json: true,
-			headers: clientHeaders,
-			body: { text: 'Thanks for reading!' },
 		},
 	], 'Reply must send the text and a trimmed idempotency key in the body, never an Idempotency-Key header');
 }
