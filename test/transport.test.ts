@@ -1,5 +1,8 @@
 import {
+	buildInstagramDestinations,
 	buildNarrareachRequest,
+	buildPlatformSchedules,
+	buildPlatformVersions,
 	commaSeparatedValues,
 	parseOptionalJson,
 	resolveRelativeArticleMediaUrls,
@@ -54,6 +57,68 @@ assertJsonEqual(
 	buildNarrareachRequest({ operation: 'cancel', resource: 'article', id: 'article-1' }),
 	{ method: 'DELETE', path: '/api/v1/article-schedules/article-1' },
 	'article cancel request must use DELETE',
+);
+
+assertJsonEqual(
+	buildNarrareachRequest({ operation: 'cancel', resource: 'note', id: 'note/1', confirmUncertain: true }),
+	{ method: 'DELETE', path: '/api/v1/notes/note%2F1?confirm_uncertain=true' },
+	'confirmed note cancel must pass confirm_uncertain=true',
+);
+assertJsonEqual(
+	buildNarrareachRequest({ operation: 'cancel', resource: 'article', id: 'article-1', confirmUncertain: true }),
+	{ method: 'DELETE', path: '/api/v1/article-schedules/article-1' },
+	'article cancel must not send the Notes-only confirm_uncertain flag',
+);
+assertJsonEqual(
+	buildNarrareachRequest({
+		operation: 'listReaderActivities',
+		query: { state: 'inbox', cursor: undefined, limit: 10 },
+	}),
+	{ method: 'GET', path: '/api/v1/reader-activities?state=inbox&limit=10' },
+	'reader activity list must drop undefined query parameters',
+);
+assertJsonEqual(
+	buildNarrareachRequest({
+		operation: 'updateReaderActivity',
+		id: 'activity/1',
+		query: { substackConnectionId: undefined },
+		body: { triageState: 'INBOX' },
+	}),
+	{ method: 'PATCH', path: '/api/v1/reader-activities/activity%2F1', body: { triageState: 'INBOX' } },
+	'reader activity update must encode the ID and omit an empty query string',
+);
+let missingActivityError: unknown;
+try {
+	buildNarrareachRequest({ operation: 'replyToReaderActivity', body: { text: 'Hi' } });
+} catch (error) {
+	missingActivityError = error;
+}
+assert(missingActivityError instanceof Error, 'a reply without an activity ID must be rejected');
+
+assertJsonEqual(
+	buildPlatformSchedules({
+		schedule: [
+			{ platform: 'SUBSTACK', scheduledFor: '2026-09-01T09:00:00.000Z' },
+			{ platform: 'X', scheduledFor: '' },
+		],
+	}),
+	[{ platform: 'SUBSTACK', scheduledFor: '2026-09-01T09:00:00.000Z' }],
+	'platform schedules must drop incomplete rows',
+);
+assert(buildPlatformSchedules({}) === undefined, 'empty platform schedules must stay absent');
+assertJsonEqual(
+	buildInstagramDestinations({ destination: [{ accountId: 'ig_1', caption: 'Hi' }, { accountId: ' ig_2 ' }] }),
+	[{ accountId: 'ig_1', caption: 'Hi' }, { accountId: 'ig_2' }],
+	'Instagram destinations must match the API array-of-objects shape',
+);
+assert(buildInstagramDestinations(undefined) === undefined, 'missing Instagram destinations must stay absent');
+assertJsonEqual(
+	buildPlatformVersions(
+		{ version: [{ platform: 'THREADS', content: ' Short ' }, { platform: 'X', content: 'Unselected' }] },
+		['THREADS'],
+	),
+	{ THREADS: 'Short' },
+	'platform versions must be keyed by selected platform',
 );
 
 let rejectedMutation = false;
