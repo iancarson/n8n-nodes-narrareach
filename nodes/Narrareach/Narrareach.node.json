@@ -8,7 +8,7 @@
       { "url": "https://www.narrareach.com/api-docs" }
     ],
     "primaryDocumentation": [
-      { "url": "https://github.com/iancarson/n8n-nodes-narrareach" }
+      { "url": "https://github.com/iancarson/Scribe-sync/tree/master/integrations/n8n-nodes-narrareach" }
     ]
   }
 }

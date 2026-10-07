@@ -1,19 +1,59 @@
 # n8n-nodes-narrareach
 
-An n8n community node for scheduling and managing Narrareach articles and Notes. See the
+An n8n community node for scheduling and managing Narrareach articles and Notes, triaging and
+replying to Substack reader activity, and reading Stats outcomes. See the
 [Narrareach n8n Substack integration guide](https://www.narrareach.com/integrations/n8n) for
 supported destinations, setup steps, plan requirements, and current limitations.
 
 ## Operations
 
-- Schedule an article for Substack, Medium, LinkedIn, or X.
-- Schedule a Note for Narrareach-supported social destinations.
+- Schedule an article for Substack, Medium, LinkedIn, or X, either from new title and HTML or from
+  an existing Narrareach draft (**Article Source → Existing Narrareach Draft** with its **Draft ID**).
+- Schedule a Note for Narrareach-supported social destinations, or post it immediately
+  (**Publish Timing → Post Now**).
 - Read an article schedule, Note, or asynchronous operation status.
 - Reschedule an article or Note.
 - Cancel an article or Note before publication.
+- List, triage, and reply to Substack reader activity (likes, comments, and restacks).
+- Read stored Stats outcomes for a period.
 
-Every create action requires a stable idempotency key. Use the source record ID from your RSS,
+Every create action, and **Reply to Reader Activity**, requires a stable idempotency key. Use the source record ID from your RSS,
 CMS, database, or content calendar so retrying an n8n execution cannot create a duplicate.
+
+## Picking destinations
+
+Destination fields load their choices from your Narrareach account, so you can pick instead of
+pasting IDs. Each field also accepts an expression, for example an ID mapped from an earlier node.
+
+| Field | Lookup route |
+| --- | --- |
+| **LinkedIn Account** and **LinkedIn Page** (Notes) | `GET /api/v1/linkedin/destinations` |
+| **Instagram Destinations → Account** (Notes) | `GET /api/v1/instagram/destinations` |
+| **LinkedIn Article Author** and **LinkedIn Newsletter** (articles) | `GET /api/v1/linkedin/article-destinations` |
+| **Medium Publication** (articles) | `GET /api/v1/medium/publications` |
+
+The lookups need the same token scopes as the action that uses them: `notes:write` for the Note
+fields and `articles:write` for the article fields.
+
+## Notes
+
+- **Publish Timing**: **Schedule** publishes at **Scheduled For**; **Post Now** publishes
+  immediately and hides **Scheduled For**.
+- **LinkedIn Account** and **LinkedIn Page**: leave both at their defaults to use the LinkedIn
+  default set in Narrareach. When several destinations exist and none is set as default,
+  Narrareach asks for one. Choose a **LinkedIn Page** to post as a Company Page; it requires the
+  account that manages it. These fields are shown and sent only when LinkedIn is selected.
+- **Instagram Destinations**: shown and sent only when Instagram is selected. Add up to 5 accounts,
+  each once. Each row can have its own **Caption** (up to 2,200 characters); leave it empty to use
+  **Note Content**. Leave the list empty to post to the Instagram default. Accounts marked
+  *not available* cannot be targeted on your current allowance.
+- **Additional Fields → First Reply**: a reply posted under the Note where the platform supports it.
+  The response lists the platforms that accepted or omitted it.
+- **Additional Fields → Platform Versions**: text written for Bluesky, LinkedIn, Threads, or X,
+  delivered as written. Each version must fit that platform's character limit; platforms without a
+  version are shortened automatically. Rows for platforms that are not selected are ignored.
+
+## Articles
 
 For Substack articles, **Substack Access** controls whether the article is **Free for Everyone**
 or **Paid Subscribers Only**. It is separate from **Send to Newsletter**, which controls email
@@ -26,24 +66,87 @@ To keep a free preview at the top of a paid Substack article, place a unique tok
 `{{NARRAREACH_PAYWALL}}` between the free and paid sections of **Content HTML**, then enter the
 same token in **Paywall Marker**. The marker must appear exactly once. Narrareach removes it,
 inserts Substack's native paywall at that position, and enables paid delivery. Substack renders
-the appropriate subscribe or upgrade prompt for each reader.
+the appropriate subscribe or upgrade prompt for each reader. **Paywall Marker** is available only
+for new articles, not for an existing draft.
 
-Inline HTML video from RSS/Hugo sources is preserved for Substack articles. When an article
-contains video, select Substack as its only destination. Medium, LinkedIn, and X article requests
-with inline video fail before a schedule is accepted, so the source content is never silently
-changed. Map the RSS item's article link into **Source URL** so relative Hugo video paths resolve
-before scheduling. Create a separate video-free article action when those destinations are also
-needed.
+**Schedule Timing → Different Time per Platform** replaces **Scheduled For** with **Platform
+Schedules**: add one row per selected platform. The rows must match **Article Platforms** exactly.
 
-YouTube iframe input publishes as an inline embed on Substack and remains visible as a canonical
-link on selected destinations that cannot embed it. Vimeo iframe input is preserved as a canonical
-link on every destination. Narrareach returns a warning when a destination receives the link
-fallback; it does not remove that destination or silently drop the video reference.
+**Additional Fields** for articles:
+
+- **Medium Publication** and **Medium Notify Followers** (Medium only). With writer-only access to
+  a publication, the story is submitted for editor review instead of going live at the scheduled
+  time.
+- **LinkedIn Article Author**, **LinkedIn Publication Type**, **LinkedIn Newsletter**, and
+  **LinkedIn Share Commentary** (LinkedIn only). A newsletter needs **LinkedIn Publication Type**
+  set to **Newsletter** and a **LinkedIn Newsletter** of the selected author.
+- **Add Search Metadata**: generate SEO titles, descriptions, and a Substack slug where supported.
+  Requires article SEO access.
+- **Substack Connection ID** (Substack only, deprecated): prefer **Substack Publication**.
+
+Platform-specific fields are sent only when their platform is selected, so a value left over from
+an earlier configuration cannot fail another platform's request.
+
+### Video in articles
+
+- **YouTube and Vimeo embeds** (iframes in **Content HTML**): both stay inline on Medium. YouTube
+  stays inline on Substack. Every other combination, including LinkedIn and X, keeps the video as
+  a visible link, and Narrareach returns a warning naming those destinations. It does not remove a
+  destination or drop the video reference.
+- **Uploaded video files and HTML `<video>` elements** (from RSS/Hugo sources or **Article Media
+  JSON**): Substack only. Select Substack as the only destination; a request that also includes
+  Medium, LinkedIn, or X is rejected before anything is scheduled, so the source content is never
+  silently changed. Create a separate video-free article action for those destinations. Map the
+  RSS item's article link into **Source URL** so relative Hugo video paths resolve before
+  scheduling.
+
+## Cancelling a Note that may already be live
+
+A Note that Narrareach is still verifying may already be published. **Cancel Schedule** returns
+`UNCERTAIN_DELETE_CONFIRMATION_REQUIRED` for it. Turn on **Confirm Uncertain Delete** to remove
+only the Narrareach record (`DELETE /api/v1/notes/{id}?confirm_uncertain=true`); a post that already
+went live stays on the platform. The option applies to Notes only.
+
+## Reader activity
+
+- **List Reader Activities** (`GET /api/v1/reader-activities`): choose **State** (**Inbox** or
+  **History**). **Additional Fields** add **Activity Type** (all, like, comment, restack),
+  **Sort** (time or relevance), **Limit** (1–50), and **Cursor**. To read the next page, map
+  `page.nextCursor` from the previous response into **Cursor** while `page.hasMore` is true.
+- **Update Reader Activity** (`PATCH /api/v1/reader-activities/{id}`): moves an item to
+  **Inbox** or **History** with **Triage State**.
+- **Reply to Reader Activity** (`POST /api/v1/reader-activities/{id}/replies`): publishes
+  **Reply Text** (up to 5,000 characters) under a replyable Substack comment and moves the item to
+  History. Use the comment's activity ID as the **Idempotency Key** so a retried execution does
+  not post the reply twice. The node sends the key in the request body.
+
+**Substack Connection ID** is optional on all three actions. Leave it empty to use your default
+Substack publication.
+
+## Stats outcomes
+
+**Get Stats Outcomes** (`GET /api/v1/stats/outcomes`) returns stored Stats for a **Period**: the
+last day, 7, 30, or 90 days, or a **Custom Range** with **From** and **To** dates (`YYYY-MM-DD`,
+ending before today in your account timezone). **Additional Fields** narrow the result by
+**Platforms** (connected platforms only), **Content Types** (article, note, social post), and
+**Publication ID**. It reads stored data and does not refresh Substack.
+
+## Token scopes for reader activity and Stats
+
+| Action | Required scope |
+| --- | --- |
+| **List Reader Activities** | `activity:read` |
+| **Update Reader Activity**, **Reply to Reader Activity** | `activity:write` |
+| **Get Stats Outcomes** | `notes:read` |
+
+These actions also need a Narrareach plan that includes API access. Grant only the scopes your
+workflow uses.
 
 ## Credentials
 
 Create an automation token in Narrareach settings and paste it into the **Narrareach API**
-credential. The default base URL is `https://www.narrareach.com`.
+credential. The default base URL is `https://www.narrareach.com`. n8n's credential test calls
+`GET /api/v1/auth/check` to confirm the token is valid.
 
 ## Development
 
@@ -66,8 +169,16 @@ Schedule** with the same ID to remove a future canary.
 
 ## Current scope
 
-This first package provides actions. Published and failed triggers will follow after Narrareach's
-public webhook API supports both article and Note lifecycle events with API-token registration.
+This package provides actions only; it has no trigger node yet. To start a workflow when a Note
+publishes or fails, add n8n's built-in **Webhook** node (HTTP method `POST`), activate the workflow,
+and paste its production URL under Webhooks in Narrareach Settings → Integrations → REST API &
+webhooks. Copy the signing secret when it is shown, choose **Test** to send a `webhook.test` event,
+then branch on `body.event` (`note.published` or `note.failed`). Scheduled Notes send events for
+Substack, LinkedIn, and X, and Notes posted right away through the API send them for every
+platform. Other scheduled Notes and articles do not send them yet, so use **Get Status** for those. See
+https://www.narrareach.com/docs/n8n.md for the payload and signature check.
+
+See [CHANGELOG.md](./CHANGELOG.md) for release notes.
 
 ## License
 
