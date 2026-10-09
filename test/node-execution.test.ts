@@ -269,9 +269,32 @@ async function testSubstackDeliveryStatusExecution() {
 		assert(calls === 1, 'each observation must perform one read');
 		assertEqual(output[0][0].json.schedule, response.schedule, 'n8n must preserve the original schedule and delivery state');
 		assert(output[0][0].pairedItem === 0, 'delivery status must retain item pairing');
+		if (state === 'waiting') {
+			assert((output[0][0].json.verification as { connectionId: string }).connectionId === 'publication-B', 'older URL-only status responses must provide the connection for code entry');
+		}
 		if (state === 'publishing') {
 			assertEqual(output, [[{ json: response, pairedItem: 0 }]], 'ordinary delivery in progress must not be normalized as a code request');
 		}
+	}
+}
+
+async function testVerificationConnectionFallback() {
+	for (const [verificationUrl, directId, expected] of [
+		['https://www.narrareach.com/articles?verifySubstack=publication%2DB', undefined, 'publication-B'],
+		['https://www.narrareach.com/articles?verifySubstack=older-id', 'current-id', 'current-id'],
+		['not a URL', undefined, null],
+		['https://www.narrareach.com/articles', undefined, null],
+	] as const) {
+		const response = { schedule: { id: 'article-1', substackDelivery: {
+			requiresVerification: true, verificationUrl,
+			...(directId ? { verification: { connectionId: directId } } : {}),
+		} } };
+		const output = await new Narrareach().execute.call(executionContext(
+			{ operation: 'getStatus', resource: 'article', id: 'article-1' }, () => response,
+		) as never);
+		assertEqual((output[0][0].json.verification as { connectionId: string | null }).connectionId,
+			expected, 'prefer the explicit connection, decode legacy links, and never invent an ID');
+		assertEqual(output[0][0].json.schedule, response.schedule, 'retain status evidence when a link is missing or invalid');
 	}
 }
 
@@ -895,6 +918,7 @@ async function run() {
 	await testVerificationErrorsDoNotExposeCodes();
 	await testSubstackVerificationHandoff();
 	await testSuccessfulArticleStatusVerificationHandoff();
+	await testVerificationConnectionFallback();
 	testSubstackAudienceMapping();
 	testSoleSubstackPublicationCanBeOmitted();
 	testArticleVideoCompatibilityNotice();

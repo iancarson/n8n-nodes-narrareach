@@ -85,6 +85,21 @@ function boundedString(value: unknown, maxLength = 300): string | undefined {
 		: undefined;
 }
 
+function verificationConnectionId(delivery: Record<string, unknown>): string | null {
+	const verification = isRecord(delivery.verification) ? delivery.verification : {};
+	const connectionId = boundedString(verification.connectionId, 64);
+	if (connectionId) return connectionId;
+
+	// Older status responses carry the connection only in the verification link.
+	const verificationUrl = boundedString(delivery.verificationUrl, 2048);
+	if (!verificationUrl) return null;
+	try {
+		return boundedString(new URL(verificationUrl).searchParams.get('verifySubstack'), 64) ?? null;
+	} catch {
+		return null;
+	}
+}
+
 function formatValidationDetails(value: unknown): string[] {
 	if (!isRecord(value) || !isRecord(value.fieldErrors)) return [];
 	const details: string[] = [];
@@ -1148,14 +1163,13 @@ export class Narrareach implements INodeType {
 				const schedule = isRecord(response) && isRecord(response.schedule) ? response.schedule : null;
 				const delivery = schedule && isRecord(schedule.substackDelivery) ? schedule.substackDelivery : null;
 				if (delivery?.requiresVerification === true) {
-					const verification = isRecord(delivery.verification) ? delivery.verification : {};
 					const draft = isRecord(schedule?.draft) ? schedule.draft : {};
 					output.push({ json: {
 						...response as IDataObject,
 						status: 'verification_required', deliveryConfirmed: false,
 						message: 'Substack needs a verification code to confirm it’s you. Request and enter the code here, then check this schedule again.',
 						verification: {
-							connectionId: boundedString(verification.connectionId, 64) ?? null,
+							connectionId: verificationConnectionId(delivery),
 							draftId: boundedString(draft.id, 200) ?? null,
 							scheduleId: boundedString(schedule?.id, 200) ?? null,
 							action: 'status',
