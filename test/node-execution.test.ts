@@ -66,7 +66,7 @@ async function testScheduleNoteExecution() {
 		method: 'POST',
 		url: 'https://www.narrareach.com/api/v1/notes',
 		json: true,
-		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.3.0' },
+		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.4.0' },
 		body: {
 			content: 'A concise update',
 			contentJson: { type: 'doc' },
@@ -158,7 +158,7 @@ async function testScheduleArticleExecution() {
 		method: 'POST',
 		url: 'https://www.narrareach.com/api/v1/articles',
 		json: true,
-		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.3.0' },
+		headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.4.0' },
 		body: {
 			title: 'A Hugo article',
 			subtitle: 'Imported through RSS',
@@ -250,6 +250,100 @@ function testSubstackAudienceMapping() {
 	assertEqual(substackAudienceToPaidContent('paid'), true, 'paid articles must enable the paywall');
 }
 
+async function testSubstackDeliveryStatusExecution() {
+	for (const state of ['waiting', 'publishing'] as const) {
+		const response = { success: true, schedule: {
+			id: 'article-1', status: 'PENDING', publishedAt: null,
+			substackDelivery: { state, ...(state === 'waiting' ? {verificationUrl:'https://www.narrareach.com/articles?verifySubstack=publication-B'} : {}), requiresVerification: state === 'waiting', note: state === 'waiting' ? 'Confirm your Substack connection.' : 'Delivery to Substack is in progress.' },
+		} };
+		let calls = 0;
+		const output = await new Narrareach().execute.call(executionContext(
+			{ operation: 'getStatus', resource: 'article', id: 'article-1' },
+			(options) => {
+				calls++;
+				assert(options.method === 'GET', 'observing delivery must not retry publication');
+				assert(options.url === 'https://www.narrareach.com/api/v1/article-schedules/article-1', 'article status must use its owner-scoped REST route');
+				return response;
+			},
+		) as never);
+		assert(calls === 1, 'each observation must perform one read');
+		assertEqual(output[0][0].json.schedule, response.schedule, 'n8n must preserve the original schedule and delivery state');
+		assert(output[0][0].pairedItem === 0, 'delivery status must retain item pairing');
+		if (state === 'waiting') {
+			assert((output[0][0].json.verification as { connectionId: string }).connectionId === 'publication-B', 'older URL-only status responses must provide the connection for code entry');
+		}
+		if (state === 'publishing') {
+			assertEqual(output, [[{ json: response, pairedItem: 0 }]], 'ordinary delivery in progress must not be normalized as a code request');
+		}
+	}
+}
+
+async function testVerificationConnectionFallback() {
+	for (const [verificationUrl, directId, expected] of [
+		['https://www.narrareach.com/articles?verifySubstack=publication%2DB', undefined, 'publication-B'],
+		['https://www.narrareach.com/articles?verifySubstack=older-id', 'current-id', 'current-id'],
+		['not a URL', undefined, null],
+		['https://www.narrareach.com/articles', undefined, null],
+	] as const) {
+		const response = { schedule: { id: 'article-1', substackDelivery: {
+			requiresVerification: true, verificationUrl,
+			...(directId ? { verification: { connectionId: directId } } : {}),
+		} } };
+		const output = await new Narrareach().execute.call(executionContext(
+			{ operation: 'getStatus', resource: 'article', id: 'article-1' }, () => response,
+		) as never);
+		assertEqual((output[0][0].json.verification as { connectionId: string | null }).connectionId,
+			expected, 'prefer the explicit connection, decode legacy links, and never invent an ID');
+		assertEqual(output[0][0].json.schedule, response.schedule, 'retain status evidence when a link is missing or invalid');
+	}
+}
+
+async function testSuccessfulArticleStatusVerificationHandoff() {
+	const schedule = {
+		id: 'schedule-status-42', status: 'PENDING', publishedAt: null,
+		scheduledFor: '2026-10-12T15:00:00.000Z', timezone: 'America/Toronto',
+		draft: { id: 'saved-draft-status-17', title: 'Keep this saved article' },
+		substackDelivery: {
+			state: 'waiting', requiresVerification: true,
+			note: 'Substack needs you to confirm it’s you.',
+			verification: { connectionId: 'publication-status-B', action: 'status',
+				tool: 'verify_substack', endpoint: '/api/v1/substack/verification' },
+		},
+	};
+	const response = { success: true, schedule };
+	let calls = 0;
+	const output = await new Narrareach().execute.call(executionContext(
+		{ operation: 'getStatus', resource: 'article', id: schedule.id },
+		options => {
+			calls++;
+			assert(options.method === 'GET', 'a status handoff must not request a code or publish an article');
+			return response;
+		},
+	) as never);
+	const result = output[0][0].json;
+	assert(result.status === 'verification_required', 'an HTTP-success article status waiting for a code must enter the verification workflow branch');
+	assert(result.deliveryConfirmed === false, 'a successful status read must not imply successful delivery');
+	const verification = result.verification as { connectionId: string; draftId: string; scheduleId: string; action: string };
+	assert(verification.connectionId === 'publication-status-B', 'use the exact challenged publication from the delivery status');
+	assert(verification.draftId === schedule.draft.id, 'retain the saved article for same-draft recovery');
+	assert(verification.scheduleId === schedule.id, 'retain the schedule to check after entering the code');
+	assert(verification.action === 'status', 'check for an existing code request before requesting another');
+	assertEqual(result.schedule, schedule, 'normalizing the workflow branch must preserve the complete schedule payload');
+	assert(calls === 1, 'checking status must remain one read');
+	assert(output[0][0].pairedItem === 0, 'the verification branch must retain input item pairing');
+
+	for (const status of ['PENDING', 'PUBLISHED', 'CANCELLED']) {
+		const ordinary = { success: true, schedule: {
+			...schedule, status,
+			substackDelivery: { state: 'publishing', requiresVerification: false, note: 'Delivery to Substack is in progress.' },
+		} };
+		const normalOutput = await new Narrareach().execute.call(executionContext(
+			{ operation: 'getStatus', resource: 'article', id: schedule.id }, () => ordinary,
+		) as never);
+		assertEqual(normalOutput, [[{ json: ordinary, pairedItem: 0 }]], 'a status without a verification requirement must pass through unchanged');
+	}
+}
+
 async function testArticleStatusAndCancelExecution() {
 	const requests: IHttpRequestOptions[] = [];
 	const request = (options: IHttpRequestOptions) => {
@@ -269,8 +363,8 @@ async function testArticleStatusAndCancelExecution() {
 	}, request) as never);
 
 	assertEqual(requests, [
-		{ method: 'GET', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.3.0' } },
-		{ method: 'DELETE', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.3.0' } },
+		{ method: 'GET', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.4.0' } },
+		{ method: 'DELETE', url: 'https://www.narrareach.com/api/v1/article-schedules/article%2F1', json: true, headers: { 'x-narrareach-client': 'n8n-nodes-narrareach/0.4.0' } },
 	], 'Article status and cancellation must use the stable public schedule routes');
 }
 
@@ -631,12 +725,12 @@ async function testLoadOptionsLookups() {
 		'GET https://www.narrareach.com/api/v1/instagram/destinations',
 	], 'Lookups must call the public GET routes');
 	assert(
-		requests.every((options) => (options.headers as Record<string, string>)['x-narrareach-client'] === 'n8n-nodes-narrareach/0.3.0'),
+		requests.every((options) => (options.headers as Record<string, string>)['x-narrareach-client'] === 'n8n-nodes-narrareach/0.4.0'),
 		'Lookups must identify the n8n client',
 	);
 }
 
-const clientHeaders = { 'x-narrareach-client': 'n8n-nodes-narrareach/0.3.0' };
+const clientHeaders = { 'x-narrareach-client': 'n8n-nodes-narrareach/0.4.0' };
 
 async function testListReaderActivities() {
 	const requests: IHttpRequestOptions[] = [];
@@ -773,7 +867,58 @@ async function testGetStatsOutcomes() {
 	], 'Stats Outcomes must send from and to only for a custom period and omit empty filters');
 }
 
+async function testSubstackVerificationHandoff() {
+	const context = executionContext({ operation: 'scheduleArticle', articleSource: 'draft', draftId: 'saved-draft', articlePlatforms: ['SUBSTACK'] }, () => {
+		throw { response: { status: 409, data: { error: { code: 'SUBSTACK_REAUTHENTICATION_REQUIRED',
+			message: 'Substack needs you to confirm it’s you.', details: { verification: { connectionId: 'connection-1', draftId: 'saved-draft', tool: 'verify_substack', endpoint: '/api/v1/substack/verification', action: 'status' } } } } } };
+	});
+	const output = await new Narrareach().execute.call(context as never);
+	assert(output[0][0].json.status === 'verification_required', 'a code challenge must pause the workflow with an explicit state');
+	assert(output[0][0].json.deliveryConfirmed === false, 'code needed must not mean scheduled');
+	assert((output[0][0].json.verification as {connectionId: string}).connectionId === 'connection-1', 'the next node needs the exact challenged connection');
+	assert((output[0][0].json.verification as {draftId: string}).draftId === 'saved-draft', 'keep the saved draft for the retry');
+}
+
+async function testVerificationErrorsDoNotExposeCodes() {
+	for (const responseError of [false, true]) {
+		for (const continueOnFail of [false, true]) {
+			const context = executionContext({ operation: 'verifySubstack', verificationAction: 'complete',
+				verificationConnectionId: 'connection-1', verificationId: 'request-1', verificationCode: '123456' }, () => {
+				const error = new Error('Unexpected response for code 123456');
+				Object.assign(error, { request: { body: { code: '123456' } }, ...(responseError ? { response: { status: 502, data: '123456' } } : {}) });
+				throw error;
+			}, continueOnFail);
+			context.getInputData = () => [{ json: { sourceId: '123456' } }];
+			let result: unknown;
+			try { result = await new Narrareach().execute.call(context as never); } catch (error) { result = error; }
+			assert(!JSON.stringify(result).includes('123456'), 'unknown verification errors must not expose codes or input data');
+			assert(JSON.stringify(result).includes('Check the code request'), 'unknown failures must explain the safe next step');
+		}
+	}
+}
+
+async function testSubstackVerification() {
+	for (const action of ['status', 'start', 'complete', 'cancel']) {
+		let captured: IHttpRequestOptions | undefined;
+		const response = { connectionId: 'connection-1', publication: 'writer', deliveryConfirmed: false, message: 'Enter your code here.' };
+		const context = executionContext({ operation: 'verifySubstack', verificationAction: action,
+			verificationConnectionId: 'connection-1', verificationId: 'request-1', verificationCode: '123456' }, options => { captured = options; return response; });
+		const output = await new Narrareach().execute.call(context as never);
+		assert(captured?.url === 'https://www.narrareach.com/api/v1/substack/verification', 'verification must stay in the authenticated workflow');
+		assertEqual(captured?.body, { action, connectionId: 'connection-1',
+			...(['complete', 'cancel'].includes(action) ? { id: 'request-1' } : {}),
+			...(action === 'complete' ? { code: '123456' } : {}),
+		}, 'only code submission may carry a code, including with stale fields');
+		assertEqual(output[0][0].json, response, 'verification must preserve the plain prompt and delivery status');
+	}
+}
+
 async function run() {
+	await testSubstackVerification();
+	await testVerificationErrorsDoNotExposeCodes();
+	await testSubstackVerificationHandoff();
+	await testSuccessfulArticleStatusVerificationHandoff();
+	await testVerificationConnectionFallback();
 	testSubstackAudienceMapping();
 	testSoleSubstackPublicationCanBeOmitted();
 	testArticleVideoCompatibilityNotice();
@@ -783,6 +928,7 @@ async function run() {
 	await testScheduleNoteExecution();
 	await testScheduleNoteLinkedInDestination();
 	await testArticleStatusAndCancelExecution();
+	await testSubstackDeliveryStatusExecution();
 	await testApiErrorPropagation();
 	await testPostNoteNow();
 	await testInstagramDestinations();

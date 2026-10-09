@@ -1,5 +1,6 @@
 export type NarrareachResource = 'article' | 'note' | 'operation';
 export type NarrareachOperation =
+	| 'verifySubstack'
 	| 'scheduleArticle'
 	| 'scheduleNote'
 	| 'getStatus'
@@ -49,6 +50,9 @@ function resourcePath(resource: NarrareachResource, id: string): string {
 }
 
 export function buildNarrareachRequest(input: NarrareachRequestInput): NarrareachRequest {
+	if (input.operation === 'verifySubstack') {
+		return { method: 'POST', path: '/api/v1/substack/verification', body: input.body };
+	}
 	if (input.operation === 'scheduleArticle') {
 		return { method: 'POST', path: '/api/v1/articles', body: input.body };
 	}

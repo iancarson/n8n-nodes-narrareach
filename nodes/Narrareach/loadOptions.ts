@@ -2,7 +2,7 @@ import type { ILoadOptionsFunctions, INodePropertyOptions } from 'n8n-workflow';
 
 import { trimmedString } from './transport';
 
-export const NARRAREACH_CLIENT_HEADER = 'n8n-nodes-narrareach/0.3.0';
+export const NARRAREACH_CLIENT_HEADER = 'n8n-nodes-narrareach/0.4.0';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);

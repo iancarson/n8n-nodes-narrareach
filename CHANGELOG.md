@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- **Confirm Substack Connection** lets a workflow request a verification code and accept it through
+  an n8n form or another input step, without sending the writer to Narrareach to sign in again.
+- Check whether confirmation is needed, request a code, submit it, or cancel a code request.
+
+### Fixed
+
+- Scheduling and status checks now clearly report when Substack needs a code and retain the saved
+  article and schedule details so the workflow can continue with the same article.
+- Confirmation messages explain that confirming the connection does not itself schedule or publish
+  an article. Existing schedules should be checked; unscheduled saved articles should be retried
+  with their original settings.
+
+### Changed
+
+- The client header reports `n8n-nodes-narrareach/0.4.0`.
+- The README explains code entry, retries, and scheduled Note webhook results.
+
+Existing workflows keep their behaviour. To collect a code, connect the new operation to a form or
+another input step in your workflow.
+
 ## 0.3.0
 
 ### Added

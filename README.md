@@ -174,8 +174,9 @@ publishes or fails, add n8n's built-in **Webhook** node (HTTP method `POST`), ac
 and paste its production URL under Webhooks in Narrareach Settings → Integrations → REST API &
 webhooks. Copy the signing secret when it is shown, choose **Test** to send a `webhook.test` event,
 then branch on `body.event` (`note.published` or `note.failed`). Scheduled Notes send events for
-Substack, LinkedIn, and X, and Notes posted right away through the API send them for every
-platform. Other scheduled Notes and articles do not send them yet, so use **Get Status** for those. See
+Substack, LinkedIn, X, Threads, Instagram, Facebook, TikTok, and Pinterest, and Notes posted right
+away through the API send them for every platform. Articles do not send them yet, and scheduled
+Bluesky Notes may not send them, so use **Get Status** for those. See
 https://www.narrareach.com/docs/n8n.md for the payload and signature check.
 
 See [CHANGELOG.md](./CHANGELOG.md) for release notes.
@@ -183,3 +184,32 @@ See [CHANGELOG.md](./CHANGELOG.md) for release notes.
 ## License
 
 MIT
+
+## When Substack asks for a code
+
+Both **Schedule Article** and a later **Get Status** can return
+`status: verification_required`. Add an **If** step for that status on both paths.
+Keep `verification.connectionId`, `verification.draftId`, and, when present,
+`verification.scheduleId` from that step. This is not confirmation of scheduling.
+
+1. Choose **Confirm Substack Connection → Check Code Request** with the returned connection.
+2. If no code request is waiting, choose **Request a Code**. If it returns `verified: true`, skip the form and code submission and go directly to step 4. Otherwise keep the returned `id`; an existing request uses `challenge.id` from Check Code Request.
+3. Collect the user's code in an n8n form or approval step. Choose **Submit Your Code** with that code, the same connection, and the code request `id`.
+4. If a schedule ID is available, use **Get Status** for that schedule. Keep polling if it is still waiting; do not create another article. If the original attempt returned only a draft ID, promptly retry **Schedule Article → Existing Draft** with that draft and the original time, audience, publication, and newsletter settings. Narrareach checks for a matching existing schedule before creating one. Do not recreate the draft.
+
+For a failed **Reschedule**, check the saved time after confirmation. If the
+requested change was not applied, retry that same time change on the original
+schedule ID. Do not create another article.
+
+Use an automation token with `articles:write`. Codes may come from email or an
+authenticator app. Follow the returned message for an expired or incorrect code;
+do not automatically retry code submissions. Avoid saving execution data containing
+codes in n8n. Narrareach does not return or log submitted codes.
+
+When changing an article request from new content to `draftId` (Existing Draft),
+use a new `idempotencyKey`, then reuse that key only for retries of that exact
+request. When retrying the unchanged original body, keep its original key.
+
+Code entry needs the form/approval branch above; the node does not display a form
+automatically. Only report scheduling or publishing after the article response
+confirms it. Unsupported Substack security checks still need Substack’s own site.

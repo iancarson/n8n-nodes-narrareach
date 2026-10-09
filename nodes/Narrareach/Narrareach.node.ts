@@ -85,6 +85,21 @@ function boundedString(value: unknown, maxLength = 300): string | undefined {
 		: undefined;
 }
 
+function verificationConnectionId(delivery: Record<string, unknown>): string | null {
+	const verification = isRecord(delivery.verification) ? delivery.verification : {};
+	const connectionId = boundedString(verification.connectionId, 64);
+	if (connectionId) return connectionId;
+
+	// Older status responses carry the connection only in the verification link.
+	const verificationUrl = boundedString(delivery.verificationUrl, 2048);
+	if (!verificationUrl) return null;
+	try {
+		return boundedString(new URL(verificationUrl).searchParams.get('verifySubstack'), 64) ?? null;
+	} catch {
+		return null;
+	}
+}
+
 function formatValidationDetails(value: unknown): string[] {
 	if (!isRecord(value) || !isRecord(value.fieldErrors)) return [];
 	const details: string[] = [];
@@ -106,6 +121,9 @@ function getNarrareachApiErrorOptions(error: unknown): NarrareachApiErrorOptions
 
 	const message = boundedString(apiError.message);
 	if (!message) return undefined;
+	if (apiError.code === 'SUBSTACK_REAUTHENTICATION_REQUIRED') {
+		return { message, description: 'Choose Confirm Substack Connection to request and enter your code here. Then check your article’s status before trying again.' };
+	}
 	const code = boundedString(apiError.code, 80);
 	const details = formatValidationDetails(apiError.details);
 	const description = [code, details.join('; ')].filter(Boolean).join(' — ');
@@ -838,6 +856,7 @@ export class Narrareach implements INodeType {
 				noDataExpression: true,
 				options: [
 					{ name: 'Cancel Schedule', value: 'cancel', action: 'Cancel a schedule' },
+					{ name: 'Confirm Substack Connection', value: 'verifySubstack', action: 'Confirm your substack connection' },
 					{ name: 'Get Stats Outcomes', value: 'getStatsOutcomes', action: 'Get stats outcomes' },
 					{ name: 'Get Status', value: 'getStatus', action: 'Get schedule status' },
 					{ name: 'List Reader Activities', value: 'listReaderActivities', action: 'List reader activities' },
@@ -891,6 +910,31 @@ export class Narrareach implements INodeType {
 					'Whether to remove a Note that is still being verified and may already be published. Narrareach then deletes only its own record; a post that already went live stays on the platform. Without this, such Notes return UNCERTAIN_DELETE_CONFIRMATION_REQUIRED.',
 				displayOptions: { show: { operation: ['cancel'], mutableResource: ['note'] } },
 			},
+			{
+				displayName: 'Verification Action', name: 'verificationAction', type: 'options', default: 'status',
+				options: [
+					{ name: 'Check Code Request', value: 'status' },
+					{ name: 'Request a Code', value: 'start' },
+					{ name: 'Submit Your Code', value: 'complete' },
+					{ name: 'Cancel Code Request', value: 'cancel' },
+				], displayOptions: showFor(['verifySubstack']),
+				description: 'Request a code, collect it with an n8n form or approval step, then submit it here',
+			},
+			{
+				displayName: 'Substack Connection', name: 'verificationConnectionId', type: 'string', default: '', required: true,
+				displayOptions: showFor(['verifySubstack']),
+				description: 'Use the connectionId returned when Substack asks for a code',
+			},
+			{
+				displayName: 'Code Request', name: 'verificationId', type: 'string', default: '', required: true,
+				displayOptions: { show: { operation: ['verifySubstack'], verificationAction: ['complete', 'cancel'] } },
+				description: 'Use the code request returned by Request a Code or Check Code Request',
+			},
+			{
+				displayName: 'Verification Code', name: 'verificationCode', type: 'string', typeOptions: { password: true }, default: '', required: true,
+				displayOptions: { show: { operation: ['verifySubstack'], verificationAction: ['complete'] } },
+				description: 'The six-digit code you received from Substack or your authenticator app',
+			},
 			...articleProperties,
 			...noteProperties,
 			...readerActivityProperties,
@@ -938,15 +982,24 @@ export class Narrareach implements INodeType {
 		const output: INodeExecutionData[] = [];
 
 		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+			const operation = this.getNodeParameter('operation', itemIndex) as NarrareachOperation;
+			let articleScheduleId: string | undefined;
 			try {
-				const operation = this.getNodeParameter('operation', itemIndex) as NarrareachOperation;
 				let resource: NarrareachResource | undefined;
 				let id: string | undefined;
 				let body: Record<string, unknown> | undefined;
 				let confirmUncertain: boolean | undefined;
 				let query: Record<string, string | number | undefined> | undefined;
 
-				if (operation === 'scheduleArticle') {
+				if (operation === 'verifySubstack') {
+					const action = this.getNodeParameter('verificationAction', itemIndex, 'status') as string;
+					body = {
+						action,
+						connectionId: this.getNodeParameter('verificationConnectionId', itemIndex) as string,
+						...(['complete', 'cancel'].includes(action) ? { id: this.getNodeParameter('verificationId', itemIndex) as string } : {}),
+						...(action === 'complete' ? { code: this.getNodeParameter('verificationCode', itemIndex) as string } : {}),
+					};
+				} else if (operation === 'scheduleArticle') {
 					const articlePlatforms = this.getNodeParameter('articlePlatforms', itemIndex) as string[];
 					const isNewArticle =
 						(this.getNodeParameter('articleSource', itemIndex, 'new') as string) !== 'draft';
@@ -1090,6 +1143,7 @@ export class Narrareach implements INodeType {
 					}
 				}
 
+				if (resource === 'article') articleScheduleId = id;
 				const request = buildNarrareachRequest({ operation, resource, id, body, confirmUncertain, query });
 				const credentials = await this.getCredentials('narrareachApi');
 				const baseUrl = String(credentials.baseUrl).replace(/\/$/, '');
@@ -1106,10 +1160,61 @@ export class Narrareach implements INodeType {
 					options,
 				);
 
-				output.push({ json: response as IDataObject, pairedItem: itemIndex });
+				const schedule = isRecord(response) && isRecord(response.schedule) ? response.schedule : null;
+				const delivery = schedule && isRecord(schedule.substackDelivery) ? schedule.substackDelivery : null;
+				if (delivery?.requiresVerification === true) {
+					const draft = isRecord(schedule?.draft) ? schedule.draft : {};
+					output.push({ json: {
+						...response as IDataObject,
+						status: 'verification_required', deliveryConfirmed: false,
+						message: 'Substack needs a verification code to confirm it’s you. Request and enter the code here, then check this schedule again.',
+						verification: {
+							connectionId: verificationConnectionId(delivery),
+							draftId: boundedString(draft.id, 200) ?? null,
+							scheduleId: boundedString(schedule?.id, 200) ?? null,
+							action: 'status',
+						},
+					}, pairedItem: itemIndex });
+				} else {
+					output.push({ json: response as IDataObject, pairedItem: itemIndex });
+				}
 			} catch (error) {
+				const failure = isRecord(error) && isRecord(error.response) && isRecord(error.response.data)
+					&& isRecord(error.response.data.error) ? error.response.data.error : null;
+				if (failure?.code === 'SUBSTACK_REAUTHENTICATION_REQUIRED') {
+					const details = isRecord(failure.details) && isRecord(failure.details.verification) ? failure.details.verification : {};
+					output.push({ json: {
+						status: 'verification_required', deliveryConfirmed: false,
+						message: 'Substack needs a verification code to confirm it’s you. Request and enter your code here. If you already have a schedule, check it afterward. Otherwise, retry the saved article with the same settings.',
+						verification: {
+							connectionId: boundedString(details.connectionId, 64) ?? null,
+							draftId: boundedString(details.draftId, 200) ?? null,
+							...(articleScheduleId ? { scheduleId: articleScheduleId } : {}),
+							action: 'status',
+						},
+					}, pairedItem: itemIndex });
+					continue;
+				}
 				let executionError: NodeApiError | NodeOperationError;
-				if (error instanceof NodeOperationError) {
+				if (operation === 'verifySubstack') {
+					const messages: Record<string, string> = {
+						invalid_code: 'Enter the six-digit code and use the same publication and code request.',
+						code_rejected: 'Substack did not accept that code. Check it and try again.',
+						expired: 'This code request has ended. Request a new code to try again.',
+						cooldown: 'Please wait a minute before requesting another code.',
+						hourly_limit: 'You have requested several codes. Please try again later.',
+						in_progress: 'We are already checking your code. Check the code request’s status in a moment.',
+						busy: 'Your Substack connection is updating. Please try again in a moment.',
+						not_connected: 'We could not use this Substack connection. Contact Narrareach support for help.',
+						unsupported_method: 'Substack needs you to complete this check on its own site.',
+						UNAUTHORIZED: 'Connect your Narrareach account to continue.',
+						FORBIDDEN: 'Your Narrareach connection does not have access to this action.',
+						PAYMENT_REQUIRED: 'Your Narrareach plan does not include this action.',
+					};
+					const message = typeof failure?.code === 'string' ? messages[failure.code] : undefined;
+					executionError = new NodeOperationError(this.getNode(), new Error(message ||
+						'We could not confirm this with Substack. Check the code request’s status before trying again.'), { itemIndex });
+				} else if (error instanceof NodeOperationError) {
 					executionError = error;
 				} else if (error && typeof error === 'object' && 'response' in error) {
 					const apiErrorOptions = getNarrareachApiErrorOptions(error);
@@ -1132,7 +1237,7 @@ export class Narrareach implements INodeType {
 
 				if (this.continueOnFail()) {
 					output.push({
-						json: items[itemIndex].json,
+						json: operation === 'verifySubstack' ? {} : items[itemIndex].json,
 						error: executionError,
 						pairedItem: itemIndex,
 					});
